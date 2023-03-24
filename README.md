@@ -493,7 +493,7 @@ Sample raster
 raster2pgsql -d -s 4326 -I -C -M -F -t 1x1 topo15_4320.tif topo15_4320 | psql -d world
 raster2pgsql -d -s 4326 -I -C -M -F -t 1x1 topo15_4320_aspect.tif topo15_4320_aspect | psql -d world
 
-# raster stats
+# raster stats by basin
 for a in {01..12}; do
   psql -d world -c "ALTER TABLE basinatlas_v10_lev${a} ADD COLUMN dem_mean int; UPDATE basinatlas_v10_lev${a} a SET dem_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320 b WHERE ST_Intersects(b.rast, a.shape);"
   psql -d world -c "ALTER TABLE basinatlas_v10_lev${a} ADD COLUMN aspect_mean int; UPDATE basinatlas_v10_lev${a} a SET aspect_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320_aspect b WHERE ST_Intersects(b.rast, a.shape);"
@@ -505,4 +505,67 @@ Clip basins to Natural Earth subunits
 ```
 echo $(psql -qAtX -d world -c '\d ne_10m_admin_0_map_subunits' | grep -v "geom" | grep -v "fid" | sed -e 's/|.*//g')
 psql -d world -c "CREATE TABLE topo15_4320_1000m_polygon_subunits AS SELECT a.amin, a.amax, b.featurecla, b.scalerank, b.labelrank, b.sovereignt, b.sov_a3, b.adm0_dif, b.level, b.type, b.tlc, b.admin, b.adm0_a3, b.geou_dif, b.geounit, b.gu_a3, b.su_dif, b.subunit, b.su_a3, b.brk_diff, b.name, b.name_long, b.brk_a3, b.brk_name, b.brk_group, b.abbrev, b.postal, b.formal_en, b.formal_fr, b.name_ciawf, b.note_adm0, b.note_brk, b.name_sort, b.name_alt, b.mapcolor7, b.mapcolor8, b.mapcolor9, b.mapcolor13, b.pop_est, b.pop_rank, b.pop_year, b.gdp_md, b.gdp_year, b.economy, b.income_grp, b.fips_10, b.iso_a2, b.iso_a2_eh, b.iso_a3, b.iso_a3_eh, b.iso_n3, b.iso_n3_eh, b.un_a3, b.wb_a2, b.wb_a3, b.woe_id, b.woe_id_eh, b.woe_note, b.adm0_iso, b.adm0_diff, b.adm0_tlc, b.adm0_a3_us, b.adm0_a3_fr, b.adm0_a3_ru, b.adm0_a3_es, b.adm0_a3_cn, b.adm0_a3_tw, b.adm0_a3_in, b.adm0_a3_np, b.adm0_a3_pk, b.adm0_a3_de, b.adm0_a3_gb, b.adm0_a3_br, b.adm0_a3_il, b.adm0_a3_ps, b.adm0_a3_sa, b.adm0_a3_eg, b.adm0_a3_ma, b.adm0_a3_pt, b.adm0_a3_ar, b.adm0_a3_jp, b.adm0_a3_ko, b.adm0_a3_vn, b.adm0_a3_tr, b.adm0_a3_id, b.adm0_a3_pl, b.adm0_a3_gr, b.adm0_a3_it, b.adm0_a3_nl, b.adm0_a3_se, b.adm0_a3_bd, b.adm0_a3_ua, b.adm0_a3_un, b.adm0_a3_wb, b.continent, b.region_un, b.subregion, b.region_wb, b.name_len, b.long_len, b.abbrev_len, b.tiny, b.homepart, b.min_zoom, b.min_label, b.max_label, b.label_x, b.label_y, b.ne_id, b.wikidataid, b.name_ar, b.name_bn, b.name_de, b.name_en, b.name_es, b.name_fa, b.name_fr, b.name_el, b.name_he, b.name_hi, b.name_hu, b.name_id, b.name_it, b.name_ja, b.name_ko, b.name_nl, b.name_pl, b.name_pt, b.name_ru, b.name_sv, b.name_tr, b.name_uk, b.name_ur, b.name_vi, b.name_zh, b.name_zht, b.fclass_iso, b.tlc_diff, b.fclass_tlc, b.fclass_us, b.fclass_fr, b.fclass_ru, b.fclass_es, b.fclass_cn, b.fclass_tw, b.fclass_in, b.fclass_np, b.fclass_pk, b.fclass_de, b.fclass_gb, b.fclass_br, b.fclass_il, b.fclass_ps, b.fclass_sa, b.fclass_eg, b.fclass_ma, b.fclass_pt, b.fclass_ar, b.fclass_jp, b.fclass_ko, b.fclass_vn, b.fclass_tr, b.fclass_id, b.fclass_pl, b.fclass_gr, b.fclass_it, b.fclass_nl, b.fclass_se, b.fclass_bd, b.fclass_ua, (ST_Multi(ST_Intersection(ST_Buffer(a.geom,0), (ST_Buffer(b.geom,0)))))::geometry(MultiPolygon,4326) AS geom FROM topo15_4320_1000m_polygon a, ne_10m_admin_0_map_subunits b WHERE ST_Intersects(a.geom, b.geom);"
+```
+
+### Geonames
+
+Import
+
+```
+# format csv
+cat allCountries.txt | tr '"' "'" > allCountries.csv
+
+# create table & prep in psql
+CREATE TABLE geonames(geonameid int, name text, asciiname text, altnames text, lat float8, lon float8, featureclass text, featurecode text, countrycode text, cc2 text, admin1 text, admin2 text, admin3 text, admin4 text, population bigint, elevation int, dem int, timezone text, mod_date date);
+COPY geonames FROM 'allCountries.csv' CSV DELIMITER E'\t';
+SELECT AddGeometryColumn('geonames','geom',4326,'POINT',2);
+UPDATE geonames SET geom = ST_SetSRID(ST_MakePoint(lon,lat),4326);
+CREATE INDEX geonames_geom_idx ON geonames USING GIST ( geom );
+ALTER TABLE geonames ADD COLUMN fid serial PRIMARY KEY;
+VACUUM ANALYZE geonames;
+CLUSTER geonames USING geonames_geom_idx;
+ANALYZE geonames;
+
+# import featurecodes
+CREATE TABLE featurecode_en(featurecode text, name text, description text);
+COPY featurecode_en FROM 'featureCodes_en.txt' DELIMITER E'\t';
+ALTER TABLE geonames ADD COLUMN fcode_en text;
+UPDATE geonames a SET fcode_en = b.name FROM featurecode_en b WHERE concat(a.featureclass, '.', a.featurecode) = b.featurecode;
+ALTER TABLE geonames ADD COLUMN fcode_desc text;
+UPDATE geonames a SET fcode_desc = b.description FROM featurecode_en b WHERE concat(a.featureclass, '.', a.featurecode) = b.featurecode;
+
+# import country info
+CREATE TABLE countryinfo(iso text, iso3 text, iso_numeric int, fips text, country text, capital text, area float, population int, continent text, tld text, currencycode text, currencyname text, phone text, postalcodeformat text, postalcoderegex text, languages text, geonameid int, neighbours text, equivalentfips text);
+COPY countryinfo FROM 'countryInfo.txt' DELIMITER E'\t' CSV HEADER;
+
+# import alternate names
+CREATE TABLE alternatenames(alternatenameid int, geonameid int, isolanguage text, alternatename text, ispreferredname text, isshortname text, iscolloquial text, ishistoric text, date_from text, date_to text);
+COPY alternatenames FROM 'alternateNamesV2.txt' DELIMITER E'\t';
+
+# import language codes and add local name
+CREATE TABLE languagecodes(iso_639_3 text, iso_639_2 text, iso_639_1 text, languagename text);
+COPY languagecodes FROM 'iso-languagecodes.txt' DELIMITER E'\t' CSV HEADER;
+UPDATE geonames a SET localname = c.alternatename FROM countryinfo b, alternatenames c WHERE a.countrycode = b.iso AND a.geonameid = c.geonameid AND regexp_replace(regexp_replace(b.languages, '\-.*$', ''),',.*$','') = c.isolanguage;
+
+# top 3 languages into array
+ALTER TABLE countryinfo ADD COLUMN languagenames text array;
+UPDATE countryinfo a SET languagenames[1] = regexp_replace(regexp_replace(b.languagename, ' \(.*\)', ''), 'Modern ', '') FROM languagecodes b WHERE SPLIT_PART(regexp_replace(a.languages, '-'||a.iso, '', 'g'), ',', 1) = b.iso_639_1 OR SPLIT_PART(a.languages, ',', 1) = b.iso_639_3;
+UPDATE countryinfo a SET languagenames[2] = regexp_replace(regexp_replace(b.languagename, ' \(.*\)', ''), 'Modern ', '') FROM languagecodes b WHERE SPLIT_PART(regexp_replace(a.languages, '-'||a.iso, '', 'g'), ',', 2) = b.iso_639_1 OR SPLIT_PART(a.languages, ',', 2) = b.iso_639_3;
+UPDATE countryinfo a SET languagenames[3] = regexp_replace(regexp_replace(b.languagename, ' \(.*\)', ''), 'Modern ', '') FROM languagecodes b WHERE SPLIT_PART(regexp_replace(a.languages, '-'||a.iso, '', 'g'), ',', 3) = b.iso_639_1 OR SPLIT_PART(a.languages, ',', 3) = b.iso_639_3;
+#rm -f localname.sql
+#echo $(psql -d world -c "\COPY (SELECT DISTINCT(iso_639_1) FROM places) TO STDOUT;") | tr ' ' '\n' | while read lang; do echo 'UPDATE places SET localname = name_'${lang} WHERE iso_639_1 = "'"${lang}"'"';' >> $PWD/../data/localname.sql; done
+#UPDATE places a SET localname = b.alternatename FROM alternatenames b WHERE a.geonameid = b.geonameid AND a.iso_639_1 = b.isolanguage AND b.isolanguage NOT IN ('','iata','link','post','unlc','wkdt');
+#echo $(psql -d world -c "\COPY (SELECT DISTINCT(iso_639_1) FROM places) TO STDOUT;") | tr ' ' '\n' | while read lang; do echo 'UPDATE places SET localname = name_'${lang} WHERE iso_639_1 = ${lang}; done
+
+# rank places, mts
+ALTER TABLE geonames ADD COLUMN pop_rank int; WITH b AS (SELECT fid, RANK() OVER (PARTITION BY countrycode ORDER BY population DESC) pop_rank FROM geonames WHERE featurecode LIKE 'PPL%' AND name NOT IN ('Brooklyn','Queens','Manhattan','The Bronx')) UPDATE geonames a SET pop_rank = b.pop_rank FROM b WHERE a.fid = b.fid;
+ALTER TABLE geonames ADD COLUMN mt_rank int; WITH b AS (SELECT fid, RANK() OVER (PARTITION BY countrycode ORDER BY dem DESC) mt_rank FROM geonames WHERE featurecode = 'MT') UPDATE geonames a SET mt_rank = b.mt_rank FROM b WHERE a.fid = b.fid;
+
+# aggregate pop_rank, mt_rank
+CREATE TABLE geonames_pop_rank AS SELECT countrycode, STRING_AGG(CONCAT(name, '.....', TO_CHAR(population::int, 'FM9,999,999,999')), ';' ORDER BY population DESC) pop_ranks FROM geonames WHERE pop_rank <= 5 GROUP BY countrycode;
+CREATE TABLE geonames_mt_rank AS SELECT countrycode, STRING_AGG(CONCAT(name, '.....', TO_CHAR(coalesce(elevation, dem)::int, 'FM9,999,999,999'), 'm'), ';' ORDER BY dem DESC) mt_ranks FROM geonames WHERE mt_rank <= 3 GROUP BY countrycode;
+CREATE TABLE geonames_top_rank AS SELECT * FROM geonames WHERE pop_rank <=5 OR mt_rank <= 3 OR featurecode IN ('PPLC');
+
+# export
+ogr2ogr -overwrite -update -f "SQLite" -sql "SELECT a.featurecode_name, a.featureclass, (SELECT b.geom FROM contour10m_segments1_5 AS b ORDER BY b.geom <-> ST_GeometryN(ST_Collect(a.geom),1) LIMIT 1) FROM allcountries AS a WHERE a.geom && ST_MakeEnvelope(-123,41,-111,51) AND a.featureclass IN ('T','H','U','V') GROUP BY a.featurecode_name, a.featureclass" export.sqlite -nln geonames -nlt LINESTRING PG:"dbname=topo15
 ```
