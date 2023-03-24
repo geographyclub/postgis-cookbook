@@ -1,5 +1,12 @@
 # postgis-cookbook
 
+## TABLE OF CONTENTS
+
+1. [General commands](#1-General-commands)  
+2. [Dataset examples](#2-Dataset-examples)  
+
+## 1. General commands
+
 Start up
 
 `sudo -u postgres psql`
@@ -60,7 +67,7 @@ Decompress
 
 `ALTER TABLE allcountries ALTER COLUMN geom SET STORAGE EXTERNAL;`
 
-Add epsg/srid examples (see spatialreference.org)
+Add epsg/srid (see spatialreference.org)
 
 ```
 INSERT into spatial_ref_sys (srid, auth_name, auth_srid, proj4text, srtext) values ( 953027, 'esri', 53027, '+proj=eqdc +lat_0=0 +lon_0=0 +lat_1=60 +lat_2=60 +x_0=0 +y_0=0 +a=6371000 +b=6371000 +units=m +no_defs ', 'PROJCS["Sphere_Equidistant_Conic",GEOGCS["GCS_Sphere",DATUM["Not_specified_based_on_Authalic_Sphere",SPHEROID["Sphere",6371000,0]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]],PROJECTION["Equidistant_Conic"],PARAMETER["False_Easting",0],PARAMETER["False_Northing",0],PARAMETER["Central_Meridian",0],PARAMETER["Standard_Parallel_1",60],PARAMETER["Standard_Parallel_2",60],PARAMETER["Latitude_Of_Origin",0],UNIT["Meter",1],AUTHORITY["EPSG","53027"]]');
@@ -231,24 +238,6 @@ Export to csv
 
 `psql -d grids -c "COPY (SELECT fid, wikidata_id, enwiki_title FROM unum WHERE enwiki_title IS NOT NULL) TO STDOUT WITH CSV DELIMITER E'\t';" > unum_wiki.csv`
 
-Export geonames example
-
-`ogr2ogr -overwrite -update -f "SQLite" -sql "SELECT a.featurecode_name, a.featureclass, (SELECT b.geom FROM contour10m_segments1_5 AS b ORDER BY b.geom <-> ST_GeometryN(ST_Collect(a.geom),1) LIMIT 1) FROM allcountries AS a WHERE a.geom && ST_MakeEnvelope(-123,41,-111,51) AND a.featureclass IN ('T','H','U','V') GROUP BY a.featurecode_name, a.featureclass" gbif_bc.sqlite -nln geonames -nlt LINESTRING PG:"dbname=topo15`
-
-Export gbif first instance as line example
-
-```
-extent="-123,41,-111,51"
-ogr2ogr -overwrite -f "SQLite" -dsco SPATIALITE=YES -sql "SELECT a.vname_en, a.datasetkey, a.kingdom, a.phylum, a.class, a.order, a.family, a.genus, a.species, a.scientificname, (SELECT b.geom FROM contour10m_seg1_5 AS b ORDER BY b.geom <-> ST_GeometryN(ST_Collect(a.geom),1) LIMIT 1) FROM nmnh AS a WHERE a.geom && ST_MakeEnvelope(${extent}) GROUP BY a.vname_en, a.datasetkey, a.kingdom, a.phylum, a.class, a.order, a.family, a.genus, a.species, a.scientificname" gbif_extract.sqlite -nln gbif -nlt LINESTRING PG:"dbname=contours"
-```
-
-Export gbif one-to-many points example
-
-```
-extent="-123,41,-111,51"
-ogr2ogr -overwrite -f "SQLite" -dsco SPATIALITE=YES -sql "SELECT a.geom, a.vname_en, a.datasetkey, a.kingdom, a.phylum, a.class, a.order, a.family, a.genus, a.species, a.scientificname, (SELECT CAST(b.fid AS int) AS contourid FROM contour10m_seg1_5 AS b ORDER BY b.geom <-> a.geom LIMIT 1) FROM nmnh AS a WHERE a.geom && ST_MakeEnvelope(${extent})" gbif_extract.sqlite -nln gbif -nlt POINT PG:"dbname=contours"
-```
-
 Get angle (degrees)
 
 `SELECT ST_Azimuth(ST_Startpoint(way), ST_Endpoint(way))/(2*pi())*360 FROM planet_osm_line;`
@@ -408,15 +397,6 @@ ALTER TABLE wwf_ecoregion_split4 ALTER COLUMN geom TYPE geometry(MULTILINESTRING
 
 Intersection (clipping)
 
-```
-# get columns names in BASH
-echo $(psql -qAtX -d world -c '\d ne_10m_admin_0_map_subunits' | grep -v "geom" | grep -v "fid" | sed -e 's/|.*//g')
-# create
-CREATE TABLE topo15_4320_1000m_polygon_subunits AS SELECT a.amin, a.amax, b.featurecla, b.scalerank, b.labelrank, b.sovereignt, b.sov_a3, b.adm0_dif, b.level, b.type, b.tlc, b.admin, b.adm0_a3, b.geou_dif, b.geounit, b.gu_a3, b.su_dif, b.subunit, b.su_a3, b.brk_diff, b.name, b.name_long, b.brk_a3, b.brk_name, b.brk_group, b.abbrev, b.postal, b.formal_en, b.formal_fr, b.name_ciawf, b.note_adm0, b.note_brk, b.name_sort, b.name_alt, b.mapcolor7, b.mapcolor8, b.mapcolor9, b.mapcolor13, b.pop_est, b.pop_rank, b.pop_year, b.gdp_md, b.gdp_year, b.economy, b.income_grp, b.fips_10, b.iso_a2, b.iso_a2_eh, b.iso_a3, b.iso_a3_eh, b.iso_n3, b.iso_n3_eh, b.un_a3, b.wb_a2, b.wb_a3, b.woe_id, b.woe_id_eh, b.woe_note, b.adm0_iso, b.adm0_diff, b.adm0_tlc, b.adm0_a3_us, b.adm0_a3_fr, b.adm0_a3_ru, b.adm0_a3_es, b.adm0_a3_cn, b.adm0_a3_tw, b.adm0_a3_in, b.adm0_a3_np, b.adm0_a3_pk, b.adm0_a3_de, b.adm0_a3_gb, b.adm0_a3_br, b.adm0_a3_il, b.adm0_a3_ps, b.adm0_a3_sa, b.adm0_a3_eg, b.adm0_a3_ma, b.adm0_a3_pt, b.adm0_a3_ar, b.adm0_a3_jp, b.adm0_a3_ko, b.adm0_a3_vn, b.adm0_a3_tr, b.adm0_a3_id, b.adm0_a3_pl, b.adm0_a3_gr, b.adm0_a3_it, b.adm0_a3_nl, b.adm0_a3_se, b.adm0_a3_bd, b.adm0_a3_ua, b.adm0_a3_un, b.adm0_a3_wb, b.continent, b.region_un, b.subregion, b.region_wb, b.name_len, b.long_len, b.abbrev_len, b.tiny, b.homepart, b.min_zoom, b.min_label, b.max_label, b.label_x, b.label_y, b.ne_id, b.wikidataid, b.name_ar, b.name_bn, b.name_de, b.name_en, b.name_es, b.name_fa, b.name_fr, b.name_el, b.name_he, b.name_hi, b.name_hu, b.name_id, b.name_it, b.name_ja, b.name_ko, b.name_nl, b.name_pl, b.name_pt, b.name_ru, b.name_sv, b.name_tr, b.name_uk, b.name_ur, b.name_vi, b.name_zh, b.name_zht, b.fclass_iso, b.tlc_diff, b.fclass_tlc, b.fclass_us, b.fclass_fr, b.fclass_ru, b.fclass_es, b.fclass_cn, b.fclass_tw, b.fclass_in, b.fclass_np, b.fclass_pk, b.fclass_de, b.fclass_gb, b.fclass_br, b.fclass_il, b.fclass_ps, b.fclass_sa, b.fclass_eg, b.fclass_ma, b.fclass_pt, b.fclass_ar, b.fclass_jp, b.fclass_ko, b.fclass_vn, b.fclass_tr, b.fclass_id, b.fclass_pl, b.fclass_gr, b.fclass_it, b.fclass_nl, b.fclass_se, b.fclass_bd, b.fclass_ua, (ST_Multi(ST_Intersection(ST_Buffer(a.geom,0), (ST_Buffer(b.geom,0)))))::geometry(MultiPolygon,4326) AS geom FROM topo15_4320_1000m_polygon a, ne_10m_admin_0_map_subunits b WHERE ST_Intersects(a.geom, b.geom);
-# create index
-CREATE INDEX topo15_4320_100m_polygon_subunits_lev06_gid ON topo15_4320_100m_polygon_subunits_lev06 USING GIST (geom);
-```
-
 `CREATE TABLE contour10m_superior AS SELECT ST_Intersection(a.geom, b.geom) AS geom FROM contour10m AS a, envelope_superior AS b WHERE ST_Intersects(a.geom, b.geom);`
 
 `CREATE TABLE ne_10m_roads_countries AS SELECT a.fid AS fid_road, b.fid AS fid_country, ST_Intersection(a.geom, b.geom) AS geom FROM ne_10m_roads a, ne_10m_admin_0_countries b WHERE ST_Intersects(a.geom, b.geom);`
@@ -448,3 +428,46 @@ Make grid (world)
 Make grid from extent
 
 `CREATE TABLE grid0001 AS SELECT (ST_PixelAsPolygons(ST_AddBand(ST_MakeEmptyRaster((SELECT ((ST_XMax(ST_Extent(way))-ST_XMin(ST_Extent(way)))/0.001)::numeric::integer FROM planet_osm_polygon), (SELECT ((ST_YMax(ST_Extent(way))-ST_YMin(ST_Extent(way)))/0.001)::numeric::integer FROM planet_osm_polygon), (SELECT ST_XMin(ST_Extent(way)) FROM planet_osm_polygon), (SELECT ST_YMin(ST_Extent(way)) FROM planet_osm_polygon), 0.001, 0.001, 0, 0, 4326), '8BSI'::text, 1, 0), 1, false)).geom::geometry(Polygon,4326) AS geom;`
+
+Make triangles
+
+`CREATE TABLE hood_voronoi AS SELECT (ST_DUMP(ST_VoronoiPolygons(ST_Collect(p.way)))).geom FROM planet_osm_point AS p WHERE place IN ('neighbourhood');`
+
+`CREATE TABLE places_delaunay AS SELECT (ST_Dump(ST_DelaunayTriangles(ST_Union(geom),0.001,1))).geom::geometry(LINESTRING,4326) AS geom FROM places;`
+
+Polygonize
+
+`CREATE TABLE contour10m_snap01_poly AS SELECT elev, ST_Collect(a.geom) AS geom FROM (SELECT elev,(ST_Dump(geom)).geom AS geom FROM contour10m_snap01) AS a GROUP BY elev;`
+
+`CREATE TABLE contour100m_poly AS SELECT fid, elev, (ST_Dump(ST_MakePolygon(geom))).geom::geometry(POLYGON,4326) AS geom FROM contour100m WHERE ST_IsClosed(geom);`
+
+Contour to delaunay to sample raster
+
+```
+DROP TABLE topo15_43200_100m_simple10_points; drop table topo15_43200_100m_simple10_delaunay;
+CREATE TABLE topo15_43200_100m_simple10_points as select (st_dumppoints(st_simplify(geom,10))).geom::geometry(POINT,4326) as geom FROM topo15_43200_100m;
+CREATE TABLE topo15_43200_100m_simple10_delaunay AS SELECT (ST_Dump(ST_DelaunayTriangles(ST_Union(geom)))).geom::geometry(POLYGON,4326) AS geom FROM topo15_43200_100m_simple10_points;
+ALTER TABLE topo15_43200_100m_simple10_delaunay ADD COLUMN dem_mean int; UPDATE topo15_43200_100m_simple10_delaunay a SET dem_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320 b WHERE ST_Intersects(b.rast, a.geom);
+ALTER TABLE topo15_43200_100m_simple10_delaunay ADD COLUMN aspect_mean int; UPDATE topo15_43200_100m_simple10_delaunay a SET aspect_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320_aspect b WHERE ST_Intersects(b.rast, a.geom);
+```
+
+Basin to voronoi to sample raster
+
+```
+CREATE TABLE basinatlas_v10_lev04_points AS SELECT objectid, (st_dumppoints(st_simplify("Shape",1))).geom::geometry(POINT,4326) as "Shape", aspect_mean FROM basinatlas_v10_lev04;
+CREATE TABLE basinatlas_v10_lev04_voronoi AS SELECT (ST_DUMP(ST_VoronoiPolygons(ST_Collect("Shape")))).geom as "Shape" FROM basinatlas_v10_lev04_points;
+ALTER TABLE basinatlas_v10_lev04_voronoi ADD COLUMN aspect_mean int; UPDATE basinatlas_v10_lev04_voronoi a SET aspect_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320_aspect b WHERE ST_Intersects(b.rast, a."Shape");
+ALTER TABLE basinatlas_v10_lev04_voronoi ADD COLUMN dem_mean int; UPDATE basinatlas_v10_lev04_voronoi a SET dem_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320 b WHERE ST_Intersects(b.rast, a."Shape");
+```
+
+Line to geometry
+
+`CREATE TABLE labels_italy AS WITH mybuffer AS (SELECT ST_ExteriorRing(ST_Buffer(ST_Centroid(ST_Collect(geom)), 5, 24)) AS geom FROM countries WHERE name IN ('Italy')), myline AS (SELECT a.name, a.scalerank, ST_MakeLine(a.geom, ST_ClosestPoint(b.geom, a.geom))::GEOMETRY(LINESTRING, 4326) AS geom FROM places_snap02 a, mybuffer b WHERE a.adm0name IN ('Italy')) SELECT name, scalerank,  ST_MakeLine(ST_StartPoint(geom), (ST_Project(ST_StartPoint(geom), ST_Distance(ST_StartPoint(geom)::GEOGRAPHY, ST_EndPoint(geom)::GEOGRAPHY)*2, ST_Azimuth(ST_StartPoint(geom), ST_EndPoint(geom))))::GEOMETRY(POINT, 4326))::GEOMETRY(LINESTRING, 4326) FROM myline;`
+
+Line to circle buffer
+
+`CREATE TABLE places_labels AS WITH mybuffer AS (SELECT adm0name, ST_ExteriorRing(ST_Buffer(ST_Centroid(ST_Collect(geom)), 10, 24))::GEOMETRY(LINESTRING,4326) AS geom FROM places GROUP BY adm0name) SELECT a.fid, a.name, a.scalerank, a.adm0name, ST_MakeLine(a.geom, ST_ClosestPoint(b.geom, a.geom))::GEOMETRY(LINESTRING, 4326) AS geom FROM places a, mybuffer b WHERE a.adm0name = b.adm0name;`
+
+## 2. Dataset examples
+
+
