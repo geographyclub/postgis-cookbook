@@ -581,3 +581,101 @@ Export
 ```
 ogr2ogr -overwrite -update -f "SQLite" -sql "SELECT a.featurecode_name, a.featureclass, (SELECT b.geom FROM contour10m_segments1_5 AS b ORDER BY b.geom <-> ST_GeometryN(ST_Collect(a.geom),1) LIMIT 1) FROM allcountries AS a WHERE a.geom && ST_MakeEnvelope(-123,41,-111,51) AND a.featureclass IN ('T','H','U','V') GROUP BY a.featurecode_name, a.featureclass" export.sqlite -nln geonames -nlt LINESTRING PG:"dbname=topo15
 ```
+
+### Koppen
+
+```
+# import koppen
+ogr2ogr -nln koppen -nlt POLYGON -lco precision=NO -overwrite -lco ENCODING=UTF-8 --config PG_USE_COPY YES -f PGDump /vsistdout/ c2076_2100.shp c2076_2100 | psql -d world -f -
+
+# add names
+cat > legend.csv <<- EOM
+11	Af	Tropical rainforest
+12	Am	Tropical monsoon
+13	As	Tropical savanna dry summer
+14	Aw	Tropical savanna dry winter 
+21	BWk	Arid
+22	BWh	Arid
+26	BSk	Semi-arid steppe
+27	BSh	Semi-arid steppe
+31	Cfa	Humid subtropical
+32	Cfb	Oceanic
+33	Cfc	Subpolar oceanic
+34	Csa	Mediterranean hot summer
+35	Csb	Mediterranean warm-cool summer
+36	Csc	Mediterranean cold summer
+37	Cwa	Humid subtropical dry winter
+38	Cwb	Subtropical highland dry winter
+39	Cwc	Subpolar oceanic dry winter
+41	Dfa	Continental hot summer
+42	Dfb	Continental warm summer
+43	Dfc	Subarctic boreal
+44	Dfd	Subarctic boreal severe winter
+45	Dsa	Continental hot summer 
+46	Dsb	Continental warm summer
+47	Dsc	Subarctic boreal
+48	Dsd	Subarctic boreal severe winter
+49	Dwa	Continental hot summer
+50	Dwb	Continental warm summer
+51	Dwc	Subarctic boreal
+52	Dwd	Subarctic boreal severe winter
+61	EF	Ice cap
+62	ET	Tundra
+EOM
+
+# join shapes and names
+CREATE TABLE koppen_name(gridcode bigint, abbrev text, name text);
+COPY koppen_name FROM 'legend.csv' DELIMITER E'\t';
+ALTER TABLE koppen ADD COLUMN name text;
+UPDATE koppen a SET name = b.name FROM koppen_name b WHERE a.gridcode = b.gridcode;
+```
+
+### GBIF
+
+Import vernacularname
+
+```
+CREATE TABLE vernacularname(taxonid int, vernacularname varchar, language varchar, country varchar, countryCode varchar, sex varchar, lifestage varchar, source varchar);
+COPY vernacularname FROM 'VernacularName.tsv' DELIMITER E'\t' CSV HEADER;
+CREATE TABLE vernacularname_agg AS SELECT taxonid,string_agg(vernacularname,';') FROM vernacularname GROUP BY taxonid;
+```
+
+Import distribution
+
+```
+sed -i 's/"//g' Distribution.tsv
+CREATE TABLE distribution(
+taxonid int, locationid text, locality text, country text, countrycode text, locationremarks text, establishmentmeans text, lifestage text, occurrencestatus text, threatstatus text, source text);
+COPY distribution FROM 'Distribution.tsv' DELIMITER E'\t' CSV HEADER;
+```
+
+Import dataset
+
+```
+sed -i '1 s/order/ordername/' ibol.csv
+CREATE TABLE ibol(gbifid bigint, datasetkey text, occurrenceid text, kingdom text, phylum text, class text, ordername text, family text, genus text, species text, infraspecificepithet text, taxonrank text, scientificname text, countrycode text, locality text, publishingorgkey text, decimallatitude float8, decimallongitude float8, coordinateuncertaintyinmeters float8, coordinateprecision float8, elevation float8, elevationaccuracy float8, depth float8, depthaccuracy float8, eventdate date, day int, month int, year int, taxonkey int, specieskey int, basisofrecord text, institutioncode text, collectioncode text, catalognumber text, recordnumber text, identifiedby text, dateidentified text, license text, rightsholder text, recordedby text, typestatus text, establishmentmeans text, lastinterpreted text, mediatype text, issue text);
+COPY ibol FROM 'ibol.csv' DELIMITER E'\t' CSV HEADER;
+ALTER TABLE ibol ADD PRIMARY KEY (gbifid);
+ALTER TABLE ibol ADD COLUMN geom GEOMETRY(POINT, 4326);
+ALTER TABLE ibol ALTER COLUMN geom SET STORAGE EXTERNAL;
+UPDATE ibol SET geom = ST_SetSrid(ST_MakePoint(decimallongitude, decimallatitude), 4326);
+CREATE INDEX ibol_gid ON ibol USING GIST (geom);
+
+# join
+ALTER TABLE ibol ADD COLUMN vernacularname text;
+UPDATE ibol a SET vernacularname = b.string_agg FROM vernacularname_agg b WHERE b.taxonid = a.taxonkey;
+```
+
+Export gbif as labels on contours
+
+```
+extent="-123,41,-111,51"
+ogr2ogr -overwrite -f "SQLite" -dsco SPATIALITE=YES -sql "SELECT a.vname_en, a.datasetkey, a.kingdom, a.phylum, a.class, a.order, a.family, a.genus, a.species, a.scientificname, (SELECT b.geom FROM contour10m_seg1_5 AS b ORDER BY b.geom <-> ST_GeometryN(ST_Collect(a.geom),1) LIMIT 1) FROM nmnh AS a WHERE a.geom && ST_MakeEnvelope(${extent}) GROUP BY a.vname_en, a.datasetkey, a.kingdom, a.phylum, a.class, a.order, a.family, a.genus, a.species, a.scientificname" gbif_extract.sqlite -nln gbif -nlt LINESTRING PG:"dbname=contours"
+```
+
+Export gbif one-to-many points example
+
+```
+extent="-123,41,-111,51"
+ogr2ogr -overwrite -f "SQLite" -dsco SPATIALITE=YES -sql "SELECT a.geom, a.vname_en, a.datasetkey, a.kingdom, a.phylum, a.class, a.order, a.family, a.genus, a.species, a.scientificname, (SELECT CAST(b.fid AS int) AS contourid FROM contour10m_seg1_5 AS b ORDER BY b.geom <-> a.geom LIMIT 1) FROM nmnh AS a WHERE a.geom && ST_MakeEnvelope(${extent})" gbif_extract.sqlite -nln gbif -nlt POINT PG:"dbname=contours"
+```
