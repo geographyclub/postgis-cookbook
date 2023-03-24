@@ -1,5 +1,4 @@
 # postgis-cookbook
-DUMP
 
 Start up
 
