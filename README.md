@@ -226,6 +226,32 @@ table='ne_10m_admin_0_countries'
 psql -d world -c "COPY (SELECT CONCAT('<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" height=\"512\" width=\"512\" viewBox=\"', CONCAT_WS(' ', ST_XMin(geom), (-1 * ST_YMax(geom)), (ST_XMax(geom) - ST_XMin(geom)), (ST_YMax(geom) - ST_YMin(geom))), '\"><path d=\"', ST_AsSVG(geom, 1), '\" vector-effect=\"non-scaling-stroke\" fill=\"#FFF\" stroke=\"#000\" stroke-width=\"1em\" stroke-linejoin=\"round\" stroke-linecap=\"round\"/>') FROM ${table}) TO STDOUT"
 ```
 
+Export multiple tables to svg
+
+```
+height=800
+width=800
+psql -d world -c "COPY (WITH b AS (SELECT table_name, string_agg(column_name, ' ' order by ordinal_position) AS columns FROM information_schema.columns GROUP BY table_name) SELECT table_name FROM b WHERE table_name LIKE 'ne_10m%') TO STDOUT;" | while read table; do 
+# start svg
+echo '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" height="'${height}'" width="'${width}'" viewBox="-20026376 -20048966 40052752 40097932">' > svg/${table}.svg
+# get data
+psql -d world -c "COPY (WITH b AS (SELECT fid, ST_Transform(geom, 'EPSG:4326', 'EPSG:3857') AS geom, GeometryType(geom) AS type FROM ${table} WHERE ST_Within(geom, ST_MakeEnvelope(-180, -85, 180, 85, 4326))) SELECT fid, ST_X(ST_Centroid(geom)), (-1 * ST_Y(ST_Centroid(geom))), ST_XMin(geom), (-1 * ST_YMax(geom)), (ST_XMax(geom) - ST_XMin(geom)), (ST_YMax(geom) - ST_YMin(geom)), ST_AsSVG(geom, 1, 0), type FROM b) TO STDOUT DELIMITER E'\t'" | while IFS=$'\t' read -a array; do
+  case ${array[8]} in
+    POINT|MULTIPOINT)
+      echo '<circle id="'${array[0]}'" cx="'${array[1]}'" cy="'${array[2]}'" r="1em" vector-effect="non-scaling-stroke" fill="#FFF" fill-opacity="1" stroke="#000" stroke-width="0.1em" stroke-linejoin="round" stroke-linecap="round"/>' >> svg/${table}.svg
+      ;;
+    LINESTRING|MULTILINESTRING)
+      echo '<path id="'${array[0]}'" d="'${array[7]}'" vector-effect="non-scaling-stroke" stroke="#000" stroke-width="0.1em" stroke-linejoin="round" stroke-linecap="round"/>' >> svg/${table}.svg
+      ;;
+    POLYGON|MULTIPOLYGON)
+      echo '<path id="'${array[0]}'" d="'${array[7]}'" vector-effect="non-scaling-stroke" fill="#FFF" fill-opacity="1" stroke="#000" stroke-width="0.1em" stroke-linejoin="round" stroke-linecap="round"/>' >> svg/${table}.svg
+      ;;
+  esac
+done
+echo '</svg>' >> svg/${table}.svg
+done
+```
+
 Export to ogr
 
 `ogr2ogr -overwrite -f "SQLite" -dsco SPATIALITE=YES avh.sqlite PG:dbname=contours avh`
@@ -264,9 +290,23 @@ Distinct select
 
 `SELECT DISTINCT ON (taxonid) taxonid, vernacularname FROM gbif_vernacular WHERE language IN ('en') ORDER BY taxonid, vernacularname;`
 
+Count
+
+```
+# count keys (using each)
+psql -d us -c "SELECT key, count(key) FROM (SELECT (each(other_tags)).key FROM points_us WHERE name IS NOT NULL) AS stat GROUP BY key;"
+
+# count values (using slice)
+SELECT value, count(value) FROM (SELECT svals(slice(other_tags, ARRAY['cuisine'])) value FROM points_us WHERE name IS NOT NULL) AS stat GROUP BY value ORDER BY count DESC;
+```
+
 Group and count
 
 `SELECT featurecode,COUNT(featurecode) FROM superior_lines WHERE featureclass IN ('T') GROUP BY featurecode ORDER BY COUNT(featurecode) ASC;`
+
+Rank by variable
+
+`psql -d us -c "SELECT name, dem, RANK() OVER (PARTITION BY admin1 ORDER BY dem DESC) FROM geonames_us;"`
 
 Snap polygon to grid
 
@@ -342,15 +382,17 @@ Dissolve/union
 
 `CREATE TABLE wwf_ecoregion AS SELECT eco_name, realm_name, biome_name, ST_Union(geom) AS geom FROM wwf_ecoregion_test GROUP BY eco_name, realm_name, biome_name;`
 
-Aggregate by column
+Aggregate
 
-`CREATE TABLE vernacularname_agg AS SELECT taxonid,string_agg(vernacularname,';') FROM vernacularname GROUP BY taxonid;`
+```
+# by column
+CREATE TABLE vernacularname_agg AS SELECT taxonid,string_agg(vernacularname,';') FROM vernacularname GROUP BY taxonid;
 
-`UPDATE grid02 a SET places = (SELECT string_agg(b.name, ',' ORDER BY b.scalerank) FROM places b WHERE ST_Intersects(a.geom, b.geom));`
+UPDATE grid02 a SET places = (SELECT string_agg(b.name, ',' ORDER BY b.scalerank) FROM places b WHERE ST_Intersects(a.geom, b.geom));
 
-Aggregate by geom
-
-`CREATE TABLE places_label_italy AS SELECT STRING_AGG(name, ',' ORDER BY ST_X(geom)) AS names, ST_SetSRID(ST_MakePoint(ST_XMin(ST_Multi(ST_Union(geom))), ST_Y(geom)), 4326)::geometry(POINT, 4326) AS geom FROM places_snap02 WHERE adm0name IN ('Italy') GROUP BY ST_Y(geom);`
+# by geom
+CREATE TABLE places_label_italy AS SELECT STRING_AGG(name, ',' ORDER BY ST_X(geom)) AS names, ST_SetSRID(ST_MakePoint(ST_XMin(ST_Multi(ST_Union(geom))), ST_Y(geom)), 4326)::geometry(POINT, 4326) AS geom FROM places_snap02 WHERE adm0name IN ('Italy') GROUP BY ST_Y(geom);
+```
 
 Find Nearest neighbor
 
@@ -426,9 +468,15 @@ Make grid from extent
 
 Make triangles
 
-`CREATE TABLE hood_voronoi AS SELECT (ST_DUMP(ST_VoronoiPolygons(ST_Collect(p.way)))).geom FROM planet_osm_point AS p WHERE place IN ('neighbourhood');`
+```
+# voronoi
+CREATE TABLE hood_voronoi AS SELECT (ST_DUMP(ST_VoronoiPolygons(ST_Collect(p.way)))).geom FROM planet_osm_point AS p WHERE place IN ('neighbourhood');
 
-`CREATE TABLE places_delaunay AS SELECT (ST_Dump(ST_DelaunayTriangles(ST_Union(geom),0.001,1))).geom::geometry(LINESTRING,4326) AS geom FROM places;`
+CREATE TABLE points_04013_voronoi_amenity AS WITH b AS (SELECT (ST_Dump(ST_VoronoiPolygons(ST_Collect(wkb_geometry)))).geom::GEOMETRY(POLYGON,4269) wkb_geometry FROM points_04013 WHERE other_tags LIKE '%amenity%') SELECT ST_Intersection(a."SHAPE", b.wkb_geometry) wkb_geometry FROM county a, b WHERE ST_Intersects(a."SHAPE", b.wkb_geometry) AND a.geoid = '04013';
+
+# delaunay
+CREATE TABLE places_delaunay AS SELECT (ST_Dump(ST_DelaunayTriangles(ST_Union(geom),0.001,1))).geom::geometry(LINESTRING,4326) AS geom FROM places;
+```
 
 Polygonize
 
@@ -462,6 +510,16 @@ Line to geometry
 Line to circle buffer
 
 `CREATE TABLE places_labels AS WITH mybuffer AS (SELECT adm0name, ST_ExteriorRing(ST_Buffer(ST_Centroid(ST_Collect(geom)), 10, 24))::GEOMETRY(LINESTRING,4326) AS geom FROM places GROUP BY adm0name) SELECT a.fid, a.name, a.scalerank, a.adm0name, ST_MakeLine(a.geom, ST_ClosestPoint(b.geom, a.geom))::GEOMETRY(LINESTRING, 4326) AS geom FROM places a, mybuffer b WHERE a.adm0name = b.adm0name;`
+
+Fill proj definition with region centroids
+
+```
+psql -d world -c "copy (select subregion, round(st_x(geom)), round(st_y(geom)) from (select subregion, st_centroid(st_union(geom)) geom from ne_10m_admin_0_countries_lakes group by subregion) b) to stdout DELIMITER E'\t';" | while IFS=$'\t' read -a array; do echo "WHEN attribute(@atlas_feature,'subregion') IN ('${array[0]}') THEN 'PROJ:+proj=ortho +lat_0=${array[2]} +lon_0=${array[1]} +ellps=sphere'"; done
+```
+
+Text as polygons (using width_bucket to scale letters)
+
+`DROP TABLE IF EXISTS ne_10m_admin_0_map_subunits_letters; CREATE TABLE ne_10m_admin_0_map_subunits_letters AS SELECT name, ST_SetSRID(ST_Translate(ST_Scale(ST_Letters(upper(name_en)), width_bucket(area,0,200,5)*0.01, width_bucket(area,0,200,5)*0.01), ST_XMIN(geom) + ((ST_X(ST_Centroid(geom))-ST_XMIN(geom))/2), ST_Y(ST_Centroid(geom))), 4326) geom FROM ne_10m_admin_0_map_subunits;`
 
 ## 2. Dataset examples
 
@@ -556,14 +614,33 @@ UPDATE countryinfo a SET languagenames[3] = regexp_replace(regexp_replace(b.lang
 #echo $(psql -d world -c "\COPY (SELECT DISTINCT(iso_639_1) FROM places) TO STDOUT;") | tr ' ' '\n' | while read lang; do echo 'UPDATE places SET localname = name_'${lang} WHERE iso_639_1 = ${lang}; done
 ```
 
-Rank places, mts
+List & order places in extent
 
 ```
+# alphabetical
+psql -d world -c "WITH b AS (SELECT b.longitude, b.latitude, array_agg(a.name ORDER BY b.page, a.name) places FROM ne_10m_populated_places_3857 a, worldatlas_pages_3857 b, worldatlas_extents c WHERE a.scalerank IN (0,1,2,3,4) AND b.page IS NOT NULL AND b.longitude = c.longitude AND b.latitude = c.latitude AND ST_Intersects(a.geom, ST_MakeEnvelope(c.x_min,c.y_min,c.x_max,c.y_max,3857)) GROUP BY b.page, b.longitude, b.latitude) UPDATE worldatlas_pages_3857 a SET places = b.places FROM b WHERE a.longitude = b.longitude AND a.latitude = b.latitude;"
+
+# by pop
+psql -d world -c "WITH b AS (SELECT b.longitude, b.latitude, array_agg(a.name ORDER BY b.page, a.pop_max DESC) places FROM ne_10m_populated_places_3857 a, worldatlas_pages_3857 b, worldatlas_extents c WHERE a.scalerank IN (0,1,2,3,4) AND b.page IS NOT NULL AND b.longitude = c.longitude AND b.latitude = c.latitude AND ST_Intersects(a.geom, ST_MakeEnvelope(c.x_min,c.y_min,c.x_max,c.y_max,3857)) GROUP BY b.page, b.longitude, b.latitude) UPDATE worldatlas_pages_3857 a SET places = b.places FROM b WHERE a.longitude = b.longitude AND a.latitude = b.latitude;"
+
+# mts
+psql -d world -c "alter table worldatlas_pages_3857 add column geonames_mt text;"
+psql -d world -c "WITH b AS (SELECT b.longitude, b.latitude, array_agg(a.name || ' ' || coalesce(a.elevation,a.dem) || 'm (' || CASE WHEN a.lon < 0 THEN round(a.lon::numeric,1)*-1 || 'W' ELSE round(a.lon::numeric,1) || 'E' END || '/' || CASE WHEN a.lat < 0 THEN round(a.lat::numeric,1)*-1 || 'S' ELSE round(a.lat::numeric,1) || 'N' END || ')' ORDER BY a.dem DESC) mts FROM geonames_mt_3857 a, worldatlas_pages_3857 b, worldatlas_extents c WHERE b.page IS NOT NULL AND b.longitude = c.longitude AND b.latitude = c.latitude AND ST_Intersects(a.geom, ST_MakeEnvelope(c.x_min,c.y_min,c.x_max,c.y_max,3857)) GROUP BY b.page, b.longitude, b.latitude) UPDATE worldatlas_pages_3857 a SET geonames_mt = b.mts FROM b WHERE a.longitude = b.longitude AND a.latitude = b.latitude;"
+```
+
+Rank places with rank() or row_number()
+
+```
+# by place
 ALTER TABLE geonames ADD COLUMN pop_rank int; WITH b AS (SELECT fid, RANK() OVER (PARTITION BY countrycode ORDER BY population DESC) pop_rank FROM geonames WHERE featurecode LIKE 'PPL%' AND name NOT IN ('Brooklyn','Queens','Manhattan','The Bronx')) UPDATE geonames a SET pop_rank = b.pop_rank FROM b WHERE a.fid = b.fid;
 ALTER TABLE geonames ADD COLUMN mt_rank int; WITH b AS (SELECT fid, RANK() OVER (PARTITION BY countrycode ORDER BY dem DESC) mt_rank FROM geonames WHERE featurecode = 'MT') UPDATE geonames a SET mt_rank = b.mt_rank FROM b WHERE a.fid = b.fid;
+
+# by extent
+psql -d world -c "ALTER TABLE geonames_mt_3857 ADD COLUMN rank int;"
+psql -d world -c "WITH b AS (SELECT b.fid, ROW_NUMBER () OVER (PARTITION BY CONCAT(c.longitude::text, c.latitude::text) ORDER BY b.dem DESC) rank FROM worldatlas_pages_3857 a, geonames_mt_3857 b, worldatlas_extents c WHERE a.page IS NOT NULL AND a.longitude = c.longitude AND a.latitude = c.latitude AND ST_Intersects(b.geom, ST_MakeEnvelope(c.x_min,c.y_min,c.x_max,c.y_max,3857))) UPDATE geonames_mt_3857 a SET rank = b.rank FROM b WHERE a.fid = b.fid;"
 ```
 
-Aggregate pop_rank, mt_rank
+Aggregate pop rank, mt rank
 
 ```
 CREATE TABLE geonames_pop_rank AS SELECT countrycode, STRING_AGG(CONCAT(name, '.....', TO_CHAR(population::int, 'FM9,999,999,999')), ';' ORDER BY population DESC) pop_ranks FROM geonames WHERE pop_rank <= 5 GROUP BY countrycode;
