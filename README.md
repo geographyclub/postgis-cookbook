@@ -284,11 +284,11 @@ Get angle (degrees)
 
 `SELECT ST_Azimuth(ST_Startpoint(way), ST_Endpoint(way))/(2*pi())*360 FROM planet_osm_line;`
 
-Get road angle
+Get road angle (degrees)
 
 `UPDATE city_points a SET road_angle = ST_Azimuth(a.geom,ST_ClosestPoint(a.geom,b.geom))/(2*pi())*360 FROM city_roads b;`
 
-Label angle 4326 -> 53209 
+Label angle epsg:4326 -> epsg:53209 
 
 ```
 ALTER TABLE countries110m ADD COLUMN angle53029 int;
