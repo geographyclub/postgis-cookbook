@@ -352,39 +352,34 @@ Aggregate by geom
 
 `CREATE TABLE places_label_italy AS SELECT STRING_AGG(name, ',' ORDER BY ST_X(geom)) AS names, ST_SetSRID(ST_MakePoint(ST_XMin(ST_Multi(ST_Union(geom))), ST_Y(geom)), 4326)::geometry(POINT, 4326) AS geom FROM places_snap02 WHERE adm0name IN ('Italy') GROUP BY ST_Y(geom);`
 
-Nearest neighbor
+Find Nearest neighbor
 
-`UPDATE gebco_contour1 a SET geom = (SELECT b.geom FROM contour10m_segment1 b WHERE ST_DWithin(a.geom,b.geom,1) ORDER BY a.geom <-> b.geom LIMIT 1);`
+```
+UPDATE gebco_contour1 a SET geom = (SELECT b.geom FROM contour10m_segment1 b WHERE ST_DWithin(a.geom,b.geom,1) ORDER BY a.geom <-> b.geom LIMIT 1);
 
-Extent
+# within extent
+SELECT a.geonameid,a.name,a.asciiname,a.altnames,a.lat,a.lon,a.featureclass,a.featurecode,a.countrycode,a.admin1,a.admin2,a.admin3,a.admin4,a.population,a.elevation,a.dem,a.timezone,a.featurecode_name,a.featurecode_notes, (SELECT b.geom FROM contour10m_segments AS b ORDER BY b.geom <-> ST_Union(ST_Intersect(a.geom)) LIMIT 1) FROM allcountries AS a WHERE a.geom && ST_MakeEnvelope(-94,43,-83,52);
 
-`SELECT a.geonameid,a.name,a.asciiname,a.altnames,a.lat,a.lon,a.featureclass,a.featurecode,a.countrycode,a.admin1,a.admin2,a.admin3,a.admin4,a.population,a.elevation,a.dem,a.timezone,a.featurecode_name,a.featurecode_notes, (SELECT b.geom FROM contour10m_segments AS b ORDER BY b.geom <-> ST_Union(ST_Intersect(a.geom)) LIMIT 1) FROM allcountries AS a WHERE a.geom && ST_MakeEnvelope(-94,43,-83,52);`
+SELECT a.gbifid, a.kingdom, a.phylum, a.class, a.order, a.family, a.genus, a.species, a.scientificname, a.decimallatitude, a.decimallongitude, a.elevation, a.depth, (SELECT b.geom FROM contour10m_segments AS b ORDER BY b.geom <-> a.geom LIMIT 1) FROM nmnh AS a WHERE a.geom && ST_MakeEnvelope(-94,43,-83,52);
 
-`SELECT a.gbifid, a.kingdom, a.phylum, a.class, a.order, a.family, a.genus, a.species, a.scientificname, a.decimallatitude, a.decimallongitude, a.elevation, a.depth, (SELECT b.geom FROM contour10m_segments AS b ORDER BY b.geom <-> a.geom LIMIT 1) FROM nmnh AS a WHERE a.geom && ST_MakeEnvelope(-94,43,-83,52);`
+# grouped by median
+SELECT a.species, (SELECT b.geom FROM contour10m_segments AS b ORDER BY b.geom <-> ST_GeometricMedian(ST_Collect(a.geom)) LIMIT 1) FROM insdc AS a WHERE a.geom && ST_MakeEnvelope(-94,43,-83,52) GROUP BY a.species;
 
-Group by median
+# grouped by n
+SELECT a.featurecode_name, a.featureclass, (SELECT b.geom FROM contour10m_segments AS b ORDER BY b.geom <-> ST_GeometryN(ST_Collect(a.geom),1) LIMIT 1) FROM allcountries AS a WHERE a.geom && ST_MakeEnvelope(-94,43,-83,52) AND a.featureclass IN ('T','H','U','V') GROUP BY a.featurecode_name, a.featureclass;
 
-`SELECT a.species, (SELECT b.geom FROM contour10m_segments AS b ORDER BY b.geom <-> ST_GeometricMedian(ST_Collect(a.geom)) LIMIT 1) FROM insdc AS a WHERE a.geom && ST_MakeEnvelope(-94,43,-83,52) GROUP BY a.species;`
+# single point
+SELECT * FROM tor_female WHERE CTUID = (SELECT CTUID FROM toronto_points_ct ORDER BY geom <-> ST_SetSRID(ST_MakePoint(-79.40,43.67),4326) LIMIT 1);
 
-Group by n
+# nearest METARS station
+SELECT m.station_id FROM ${mytable} AS m ORDER BY m.geom <-> p.geom LIMIT 1;
 
-`SELECT a.featurecode_name, a.featureclass, (SELECT b.geom FROM contour10m_segments AS b ORDER BY b.geom <-> ST_GeometryN(ST_Collect(a.geom),1) LIMIT 1) FROM allcountries AS a WHERE a.geom && ST_MakeEnvelope(-94,43,-83,52) AND a.featureclass IN ('T','H','U','V') GROUP BY a.featurecode_name, a.featureclass;`
+# with cte
+CREATE TABLE labels_italy AS WITH points AS (SELECT (ST_DumpPoints(b.geom)).geom::GEOMETRY(point, 4326) as geom FROM countries b WHERE name IN ('Italy')) SELECT a.name, (SELECT b.geom FROM points b ORDER BY b.geom <-> a.geom LIMIT 1) FROM places a WHERE adm0name IN ('Italy');
 
-Group by single point
-
-`SELECT * FROM tor_female WHERE CTUID = (SELECT CTUID FROM toronto_points_ct ORDER BY geom <-> ST_SetSRID(ST_MakePoint(-79.40,43.67),4326) LIMIT 1);`
-
-Nearest METARS station
-
-`SELECT m.station_id FROM ${mytable} AS m ORDER BY m.geom <-> p.geom LIMIT 1;`
-
-Nearest neighbor with cte
-
-`CREATE TABLE labels_italy AS WITH points AS (SELECT (ST_DumpPoints(b.geom)).geom::GEOMETRY(point, 4326) as geom FROM countries b WHERE name IN ('Italy')) SELECT a.name, (SELECT b.geom FROM points b ORDER BY b.geom <-> a.geom LIMIT 1) FROM places a WHERE adm0name IN ('Italy');`
-
-Cross join
-
-`CREATE TABLE contour10m_classt AS SELECT b.fcode_en_name, a.geom FROM contour10m_segment1 a CROSS JOIN LATERAL (SELECT fcode_en_name, geom FROM allcountries WHERE featureclass = 'T' AND a.elev >= 0 AND ST_DWithin(a.geom,geom,0.1) ORDER BY a.geom <-> geom LIMIT 1) b;`
+# cross join
+CREATE TABLE contour10m_classt AS SELECT b.fcode_en_name, a.geom FROM contour10m_segment1 a CROSS JOIN LATERAL (SELECT fcode_en_name, geom FROM allcountries WHERE featureclass = 'T' AND a.elev >= 0 AND ST_DWithin(a.geom,geom,0.1) ORDER BY a.geom <-> geom LIMIT 1) b;
+```
 
 Make contours
 
