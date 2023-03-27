@@ -18,12 +18,6 @@ createdb -O steve world
 CREATE EXTENSION postgis; CREATE EXTENSION postgis_topology; CREATE EXTENSION postgis_raster; CREATE EXTENSION postgis_sfcgal; CREATE EXTENSION hstore; CREATE extension tablefunc;
 ```
 
-Set backend
-
-`SET postgis.backend = sfcgal;`
-
-`SET postgis.backend = geos;`
-
 Add user and password
 
 `CREATE ROLE saga LOGIN PASSWORD 'password';`
@@ -32,117 +26,13 @@ Add user and password
 
 `GRANT USAGE ON SCHEMA public TO saga;`
 
-Drop tables with wildcard
+Set backend
 
-```
-tables=`psql -d world -P tuples_only=1 -c '\dt' |awk -F" " '/ne_/ {print $3","}'`
-psql -d world -c "DROP TABLE ${tables%?};";
-```
+`SET postgis.backend = sfcgal;`
 
-Get column names
+`SET postgis.backend = geos;`
 
-`SELECT column_name FROM information_schema.columns WHERE table_name='state2020' AND column_name LIKE 'zscore%';`
-
-Column to row
-
-`SELECT name, (x).key, (x).value FROM (SELECT name, EACH(hstore(state2020)) AS x FROM state2020) q;`
-
-Add keys, index
-
-`ALTER TABLE wwf_ecoregion ADD COLUMN fid serial primary key;`
-
-`ALTER TABLE places_nogeom ADD PRIMARY KEY (fid);`
-
-`CREATE INDEX contour100m_poly_gid ON contour100m_poly USING GIST (geom);`
-
-Cluster
-
-```
-VACUUM ANALYZE geosnap;
-CLUSTER geosnap USING geosnap_gid;
-ANALYZE geosnap;
-```
-
-Save to external file
-
-`ALTER TABLE allcountries ALTER COLUMN geom SET STORAGE EXTERNAL;`
-
-Add epsg/srid (see spatialreference.org)
-
-```
-INSERT into spatial_ref_sys (srid, auth_name, auth_srid, proj4text, srtext) values ( 953027, 'esri', 53027, '+proj=eqdc +lat_0=0 +lon_0=0 +lat_1=60 +lat_2=60 +x_0=0 +y_0=0 +a=6371000 +b=6371000 +units=m +no_defs ', 'PROJCS["Sphere_Equidistant_Conic",GEOGCS["GCS_Sphere",DATUM["Not_specified_based_on_Authalic_Sphere",SPHEROID["Sphere",6371000,0]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]],PROJECTION["Equidistant_Conic"],PARAMETER["False_Easting",0],PARAMETER["False_Northing",0],PARAMETER["Central_Meridian",0],PARAMETER["Standard_Parallel_1",60],PARAMETER["Standard_Parallel_2",60],PARAMETER["Latitude_Of_Origin",0],UNIT["Meter",1],AUTHORITY["EPSG","53027"]]');
-```
-
-```
-INSERT into spatial_ref_sys (srid, auth_name, auth_srid, proj4text, srtext) values ( 954031, 'esri', 54031, '+proj=tpeqd +lat_1=0 +lon_1=0 +lat_2=60 +lon_2=60 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs ', 'PROJCS["World_Two_Point_Equidistant",GEOGCS["GCS_WGS_1984",DATUM["WGS_1984",SPHEROID["WGS_1984",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]],PROJECTION["Two_Point_Equidistant"],PARAMETER["False_Easting",0],PARAMETER["False_Northing",0],PARAMETER["Latitude_Of_1st_Point",0],PARAMETER["Latitude_Of_2nd_Point",60],PARAMETER["Longitude_Of_1st_Point",0],PARAMETER["Longitude_Of_2nd_Point",60],UNIT["Meter",1],AUTHORITY["EPSG","54031"]]');
-```
-
-```
-INSERT into spatial_ref_sys (srid, auth_name, auth_srid, proj4text, srtext) values ( 53029, 'ESRI', 53029, '+proj=vandg +lon_0=0 +x_0=0 +y_0=0 +R_A +a=6371000 +b=6371000 +units=m +no_defs ', 'PROJCS["Sphere_Van_der_Grinten_I",GEOGCS["GCS_Sphere",DATUM["Not_specified_based_on_Authalic_Sphere",SPHEROID["Sphere",6371000,0]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]],PROJECTION["VanDerGrinten"],PARAMETER["False_Easting",0],PARAMETER["False_Northing",0],PARAMETER["Central_Meridian",0],UNIT["Meter",1],AUTHORITY["EPSG","53029"]]');
-```
-
-Delete rows
-
-`DELETE FROM table;`
-
-Create geometry column
-
-`ALTER TABLE contour10m_dissolve ADD COLUMN geom TYPE GEOMETRY(MULTILINESTRING,4326);`
-
-Make valid
-
-`UPDATE polygon_voronoi SET way = ST_MakeValid(way) WHERE NOT ST_IsValid(way);`
-
-Cast as int with mixed column
-
-`UPDATE ${city}_polygons SET levels = (SELECT CAST(other_tags->'building:levels' AS INT) WHERE other_tags->'building:levels' ~ '^[0-9]+$');`
-
-Change geometry type
-
-`ALTER TABLE milan_point ALTER COLUMN way type geometry(Polygon, 4326);`
-
-`ALTER TABLE limw_points ALTER TABLE contour100m_id TYPE INT USING contour100m_id::integer;`
-
-Geometry collection
-
-`UPDATE places_voronoi set geom = ST_CollectionExtract(ST_VoronoiPolygons(b.geom),3) FROM places b;`
-
-Change srid of multipolygons w/ tolerance error
-
-```
-CREATE TABLE urbanareas_3857 AS SELECT * FROM urbanareas;
-ALTER TABLE urbanareas_3857 ALTER COLUMN geom type geometry;
-UPDATE urbanareas_3857 SET geom = ST_Intersection(ST_MakeEnvelope(-179, -89, 179, 89, 4326),geom);
-```
-
-```
-CREATE TABLE geonames_3857 AS SELECT * FROM geonames WHERE ST_Contains(ST_MakeEnvelope(-179, -89, 179, 89, 4326),geom);
-SELECT UpdateGeometrySRID('hydroriver_simple_3857', 'shape', 3857);
-UPDATE hydroriver_simple_3857 SET shape = ST_Transform(ST_SetSRID(shape,4326),3857);
-```
-
-Translate/transform
-
-`ALTER TABLE metar_20180320_183305 ADD COLUMN translated geometry(Point,4326);`
-
-`UPDATE metar_20180320_183305 SET translated=ST_SetSrid(ST_Translate(geom,0.1,0),4326);`
-
-Sample raster at points
-
-`UPDATE places a SET dem = ST_Value(r.rast, 1, a.geom) FROM topo15_43200 r WHERE ST_Intersects(r.rast,a.geom);`
-
-List tables
-
-`COPY (SELECT * FROM pg_catalog.pg_tables) TO STDOUT;`
-
-`COPY (SELECT table_name, string_agg(column_name, ', ' order by ordinal_position) as columns FROM information_schema.columns WHERE table_name LIKE 'ne_10m%' GROUP BY table_name;) TO STDOUT`
-
-Search tables that start with ne_10m, has name column
-
-`psql -d world -c "COPY (WITH b AS (SELECT table_name, string_agg(column_name, ' ' order by ordinal_position) AS columns FROM information_schema.columns GROUP BY table_name) SELECT table_name FROM b WHERE table_name LIKE 'ne_10m%' AND (columns LIKE '% name %' OR columns LIKE 'name %' OR columns LIKE '% name')) TO STDOUT;"`
-
-Import spatial data  
-Some options:  
+Import spatial data. Some useful options:  
 -skipfailures  
 -nlt PROMOTE_TO_MULTI  
 -lco precision=NO  
@@ -163,52 +53,6 @@ Import json
 CREATE TABLE factbook ( content jsonb );
 INSERT INTO factbook values (:'content');
 ```
-
-Get json keys
-
-`SELECT DISTINCT jsonb_object_keys(tags) FROM highway_primary;`
-
-Export json keys
-
-`psql -d world -c "COPY (SELECT '<p>' || row_to_json(t) || '</p>' FROM (SELECT a.nameascii, b.station_id, b.temp, b.wind_sp, b.sky FROM places a, metar b WHERE a.metar_id = b.station_id) t) TO STDOUT;" >> datastream.html;`
-
-Add hstore
-
-`ALTER TABLE ${city}_polygons ALTER COLUMN other_tags TYPE hstore USING other_tags::hstore;`
-
-Convert hstore to text
-
-`psql -d us -c "ALTER TABLE points_${geoid} ALTER COLUMN other_tags TYPE TEXT;`
-
-Get hstore keys
-
-`SELECT DISTINCT skeys(hstore(tags)) FROM planet_osm_polygon;`
-
-Select hstore keys
-
-`UPDATE planet_osm_polygon SET levels = (SELECT tags->'building:levels');`
-
-`SELECT other_tags FROM multipolygons WHERE other_tags LIKE '%construction%';`
-
-Boolean type
-
-`SELECT b.name, COUNT(b.name) FROM points_us a, acs_2019_5yr_place b WHERE ST_Intersects(a.wkb_geometry, b."Shape") AND ((a.other_tags->'%amenity%')::boolean) GROUP BY b.name ORDER BY COUNT(b.name);`
-
-Replace string
-
-`UPDATE <table> SET <field> = replace(<field>, 'cat', 'dog');`
-
-Concat strings
-
-`SELECT CONCAT(b.id,';',b.station,';',b.latitude,';',b.longitude,';',b.elevation) FROM ghcn b WHERE a.fid = b.contour100m_id;`
-
-Split part
-
-`UPDATE countryinfo a SET language1 = b.languagename FROM languagecodes b WHERE SPLIT_PART(regexp_replace(a.languages, '-'||a.iso, '', 'g'), ',', 1) = b.iso_639_1 OR SPLIT_PART(a.languages, ',', 1) = b.iso_639_3;`
-
-Split + replace
-
-`SELECT wx, REGEXP_REPLACE(REGEXP_REPLACE(wx,'(\w\w)','\1 ','g'),' +',' ','g') FROM metar;`
 
 Copy db to db
 
@@ -272,6 +116,170 @@ Export to csv
 
 `psql -d grids -c "COPY (SELECT fid, wikidata_id, enwiki_title FROM unum WHERE enwiki_title IS NOT NULL) TO STDOUT WITH CSV DELIMITER E'\t';" > unum_wiki.csv`
 
+List tables
+
+`COPY (SELECT * FROM pg_catalog.pg_tables) TO STDOUT;`
+
+`COPY (SELECT table_name, string_agg(column_name, ', ' order by ordinal_position) as columns FROM information_schema.columns WHERE table_name LIKE 'ne_10m%' GROUP BY table_name;) TO STDOUT`
+
+Search tables that start with ne_10m, has name column
+
+`psql -d world -c "COPY (WITH b AS (SELECT table_name, string_agg(column_name, ' ' order by ordinal_position) AS columns FROM information_schema.columns GROUP BY table_name) SELECT table_name FROM b WHERE table_name LIKE 'ne_10m%' AND (columns LIKE '% name %' OR columns LIKE 'name %' OR columns LIKE '% name')) TO STDOUT;"`
+
+Random select
+
+`CREATE TABLE contour100m_points1000 AS SELECT * FROM contour100m_points TABLESAMPLE SYSTEM ((1000 * 100) / 5100000.0);`
+
+`SELECT * FROM contour100m_raw WHERE fid IN (SELECT fid FROM contour100m_raw ORDER BY RANDOM() LIMIT 100000);`
+
+Distinct select
+
+`SELECT DISTINCT ON (taxonid) taxonid, vernacularname FROM gbif_vernacular WHERE language IN ('en') ORDER BY taxonid, vernacularname;`
+
+Delete rows
+
+`DELETE FROM table;`
+
+Drop tables with wildcard
+
+```
+tables=`psql -d world -P tuples_only=1 -c '\dt' |awk -F" " '/ne_/ {print $3","}'`
+psql -d world -c "DROP TABLE ${tables%?};";
+```
+
+Get column names
+
+`SELECT column_name FROM information_schema.columns WHERE table_name='state2020' AND column_name LIKE 'zscore%';`
+
+Column to row
+
+`SELECT name, (x).key, (x).value FROM (SELECT name, EACH(hstore(state2020)) AS x FROM state2020) q;`
+
+Add keys, index
+
+`ALTER TABLE wwf_ecoregion ADD COLUMN fid serial primary key;`
+
+`ALTER TABLE places_nogeom ADD PRIMARY KEY (fid);`
+
+`CREATE INDEX contour100m_poly_gid ON contour100m_poly USING GIST (geom);`
+
+Cluster index
+
+```
+VACUUM ANALYZE geosnap;
+CLUSTER geosnap USING geosnap_gid;
+ANALYZE geosnap;
+```
+
+Save to external file
+
+`ALTER TABLE allcountries ALTER COLUMN geom SET STORAGE EXTERNAL;`
+
+Add missing epsg/srid (see spatialreference.org)
+
+```
+# eqdc
+INSERT into spatial_ref_sys (srid, auth_name, auth_srid, proj4text, srtext) values ( 953027, 'esri', 53027, '+proj=eqdc +lat_0=0 +lon_0=0 +lat_1=60 +lat_2=60 +x_0=0 +y_0=0 +a=6371000 +b=6371000 +units=m +no_defs ', 'PROJCS["Sphere_Equidistant_Conic",GEOGCS["GCS_Sphere",DATUM["Not_specified_based_on_Authalic_Sphere",SPHEROID["Sphere",6371000,0]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]],PROJECTION["Equidistant_Conic"],PARAMETER["False_Easting",0],PARAMETER["False_Northing",0],PARAMETER["Central_Meridian",0],PARAMETER["Standard_Parallel_1",60],PARAMETER["Standard_Parallel_2",60],PARAMETER["Latitude_Of_Origin",0],UNIT["Meter",1],AUTHORITY["EPSG","53027"]]');
+
+# tpeqd
+INSERT into spatial_ref_sys (srid, auth_name, auth_srid, proj4text, srtext) values ( 954031, 'esri', 54031, '+proj=tpeqd +lat_1=0 +lon_1=0 +lat_2=60 +lon_2=60 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs ', 'PROJCS["World_Two_Point_Equidistant",GEOGCS["GCS_WGS_1984",DATUM["WGS_1984",SPHEROID["WGS_1984",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]],PROJECTION["Two_Point_Equidistant"],PARAMETER["False_Easting",0],PARAMETER["False_Northing",0],PARAMETER["Latitude_Of_1st_Point",0],PARAMETER["Latitude_Of_2nd_Point",60],PARAMETER["Longitude_Of_1st_Point",0],PARAMETER["Longitude_Of_2nd_Point",60],UNIT["Meter",1],AUTHORITY["EPSG","54031"]]');
+
+# vandg
+INSERT into spatial_ref_sys (srid, auth_name, auth_srid, proj4text, srtext) values ( 53029, 'ESRI', 53029, '+proj=vandg +lon_0=0 +x_0=0 +y_0=0 +R_A +a=6371000 +b=6371000 +units=m +no_defs ', 'PROJCS["Sphere_Van_der_Grinten_I",GEOGCS["GCS_Sphere",DATUM["Not_specified_based_on_Authalic_Sphere",SPHEROID["Sphere",6371000,0]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]],PROJECTION["VanDerGrinten"],PARAMETER["False_Easting",0],PARAMETER["False_Northing",0],PARAMETER["Central_Meridian",0],UNIT["Meter",1],AUTHORITY["EPSG","53029"]]');
+```
+
+Create geometry column
+
+`ALTER TABLE contour10m_dissolve ADD COLUMN geom TYPE GEOMETRY(MULTILINESTRING,4326);`
+
+Make valid
+
+`UPDATE polygon_voronoi SET way = ST_MakeValid(way) WHERE NOT ST_IsValid(way);`
+
+Cast with mixed column
+
+`UPDATE ${city}_polygons SET levels = (SELECT CAST(other_tags->'building:levels' AS INT) WHERE other_tags->'building:levels' ~ '^[0-9]+$');`
+
+Change geometry type
+
+`ALTER TABLE milan_point ALTER COLUMN way type geometry(Polygon, 4326);`
+
+`ALTER TABLE limw_points ALTER TABLE contour100m_id TYPE INT USING contour100m_id::integer;`
+
+Geometry collection
+
+`UPDATE places_voronoi set geom = ST_CollectionExtract(ST_VoronoiPolygons(b.geom),3) FROM places b;`
+
+Change srid of multipolygons w/ tolerance error
+
+```
+CREATE TABLE urbanareas_3857 AS SELECT * FROM urbanareas;
+ALTER TABLE urbanareas_3857 ALTER COLUMN geom type geometry;
+UPDATE urbanareas_3857 SET geom = ST_Intersection(ST_MakeEnvelope(-179, -89, 179, 89, 4326),geom);
+```
+
+```
+CREATE TABLE geonames_3857 AS SELECT * FROM geonames WHERE ST_Contains(ST_MakeEnvelope(-179, -89, 179, 89, 4326),geom);
+SELECT UpdateGeometrySRID('hydroriver_simple_3857', 'shape', 3857);
+UPDATE hydroriver_simple_3857 SET shape = ST_Transform(ST_SetSRID(shape,4326),3857);
+```
+
+Translate/transform
+
+`ALTER TABLE metar_20180320_183305 ADD COLUMN translated geometry(Point,4326);`
+
+`UPDATE metar_20180320_183305 SET translated=ST_SetSrid(ST_Translate(geom,0.1,0),4326);`
+
+Get json keys
+
+`SELECT DISTINCT jsonb_object_keys(tags) FROM highway_primary;`
+
+Export json keys
+
+`psql -d world -c "COPY (SELECT '<p>' || row_to_json(t) || '</p>' FROM (SELECT a.nameascii, b.station_id, b.temp, b.wind_sp, b.sky FROM places a, metar b WHERE a.metar_id = b.station_id) t) TO STDOUT;" >> datastream.html;`
+
+Add hstore
+
+`ALTER TABLE ${city}_polygons ALTER COLUMN other_tags TYPE hstore USING other_tags::hstore;`
+
+Convert hstore to text
+
+`psql -d us -c "ALTER TABLE points_${geoid} ALTER COLUMN other_tags TYPE TEXT;`
+
+Get hstore keys
+
+`SELECT DISTINCT skeys(hstore(tags)) FROM planet_osm_polygon;`
+
+Select hstore keys
+
+`UPDATE planet_osm_polygon SET levels = (SELECT tags->'building:levels');`
+
+`SELECT other_tags FROM multipolygons WHERE other_tags LIKE '%construction%';`
+
+Boolean type
+
+`SELECT b.name, COUNT(b.name) FROM points_us a, acs_2019_5yr_place b WHERE ST_Intersects(a.wkb_geometry, b."Shape") AND ((a.other_tags->'%amenity%')::boolean) GROUP BY b.name ORDER BY COUNT(b.name);`
+
+Replace string
+
+`UPDATE <table> SET <field> = replace(<field>, 'cat', 'dog');`
+
+Concat strings
+
+`SELECT CONCAT(b.id,';',b.station,';',b.latitude,';',b.longitude,';',b.elevation) FROM ghcn b WHERE a.fid = b.contour100m_id;`
+
+Split part
+
+`UPDATE countryinfo a SET language1 = b.languagename FROM languagecodes b WHERE SPLIT_PART(regexp_replace(a.languages, '-'||a.iso, '', 'g'), ',', 1) = b.iso_639_1 OR SPLIT_PART(a.languages, ',', 1) = b.iso_639_3;`
+
+Split + replace
+
+`SELECT wx, REGEXP_REPLACE(REGEXP_REPLACE(wx,'(\w\w)','\1 ','g'),' +',' ','g') FROM metar;`
+
+Sample raster at points
+
+`UPDATE places a SET dem = ST_Value(r.rast, 1, a.geom) FROM topo15_43200 r WHERE ST_Intersects(r.rast,a.geom);`
+
 Get angle (degrees)
 
 `SELECT ST_Azimuth(ST_Startpoint(way), ST_Endpoint(way))/(2*pi())*360 FROM planet_osm_line;`
@@ -287,16 +295,6 @@ ALTER TABLE countries110m ADD COLUMN angle53029 int;
 UPDATE countries110m SET angle53029 = ST_Azimuth(ST_Transform(ST_Centroid(geom),'EPSG:4326','+proj=vandg +lon_0=0 +x_0=0 +y_0=0 +R_A +a=6371000 +b=6371000 +units=m no_defs'),ST_Transform(ST_Translate(ST_Centroid(geom),0.1,0),'EPSG:4326','+proj=vandg +lon_0=0 +x_0=0 +y_0=0 +R_A +a=6371000 +b=6371000 +units=m no_defs'))/(2*pi())*360;
 UPDATE marine110m SET angle53029 = ST_Azimuth(ST_Transform(ST_Centroid(ST_Buffer(geom,0)),'EPSG:4326','+proj=vandg +lon_0=0 +x_0=0 +y_0=0 +R_A +a=6371000 +b=6371000 +units=m no_defs'),ST_Transform(ST_Intersection(ST_MakeEnvelope(-175, -85, 175, 85, 4326),ST_Translate(ST_Centroid(ST_Buffer(geom,0)),0.1,0)),'EPSG:4326','+proj=vandg +lon_0=0 +x_0=0 +y_0=0 +R_A +a=6371000 +b=6371000 +units=m no_defs'))/(2*pi())*360;
 ```
-
-Random select
-
-`CREATE TABLE contour100m_points1000 AS SELECT * FROM contour100m_points TABLESAMPLE SYSTEM ((1000 * 100) / 5100000.0);`
-
-`SELECT * FROM contour100m_raw WHERE fid IN (SELECT fid FROM contour100m_raw ORDER BY RANDOM() LIMIT 100000);`
-
-Distinct select
-
-`SELECT DISTINCT ON (taxonid) taxonid, vernacularname FROM gbif_vernacular WHERE language IN ('en') ORDER BY taxonid, vernacularname;`
 
 Count
 
