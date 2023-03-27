@@ -213,12 +213,12 @@ Geometry collection
 Change srid of multipolygons w/ tolerance error
 
 ```
+# with intersection
 CREATE TABLE urbanareas_3857 AS SELECT * FROM urbanareas;
 ALTER TABLE urbanareas_3857 ALTER COLUMN geom type geometry;
 UPDATE urbanareas_3857 SET geom = ST_Intersection(ST_MakeEnvelope(-179, -89, 179, 89, 4326),geom);
-```
 
-```
+# with contains
 CREATE TABLE geonames_3857 AS SELECT * FROM geonames WHERE ST_Contains(ST_MakeEnvelope(-179, -89, 179, 89, 4326),geom);
 SELECT UpdateGeometrySRID('hydroriver_simple_3857', 'shape', 3857);
 UPDATE hydroriver_simple_3857 SET shape = ST_Transform(ST_SetSRID(shape,4326),3857);
