@@ -63,7 +63,7 @@ CLUSTER geosnap USING geosnap_gid;
 ANALYZE geosnap;
 ```
 
-Decompress
+Save to external file
 
 `ALTER TABLE allcountries ALTER COLUMN geom SET STORAGE EXTERNAL;`
 
@@ -137,8 +137,16 @@ List tables
 
 `COPY (SELECT table_name, string_agg(column_name, ', ' order by ordinal_position) as columns FROM information_schema.columns WHERE table_name LIKE 'ne_10m%' GROUP BY table_name;) TO STDOUT`
 
+Search tables that start with ne_10m, has name column
+
+`psql -d world -c "COPY (WITH b AS (SELECT table_name, string_agg(column_name, ' ' order by ordinal_position) AS columns FROM information_schema.columns GROUP BY table_name) SELECT table_name FROM b WHERE table_name LIKE 'ne_10m%' AND (columns LIKE '% name %' OR columns LIKE 'name %' OR columns LIKE '% name')) TO STDOUT;"`
+
 Import spatial data  
-Options: -skipfailures -nlt PROMOTE_TO_MULTI -lco precision=NO --config OGR_GEOMETRY_ACCEPT_UNCLOSED_RING NO
+Some options:  
+-skipfailures  
+-nlt PROMOTE_TO_MULTI  
+-lco precision=NO  
+--config OGR_GEOMETRY_ACCEPT_UNCLOSED_RING NO
 
 `ogr2ogr -nln countries110m -nlt PROMOTE_TO_MULTI -nlt MULTIPOLYGON -lco precision=NO -overwrite -lco ENCODING=UTF-8 --config PG_USE_COPY YES -f PGDump /vsistdout/ natural_earth_vector.gpkg ne_110m_admin_0_countries | psql -d world -f -`
 
