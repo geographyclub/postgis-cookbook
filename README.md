@@ -460,11 +460,11 @@ Intersects
 
 Make extent/envelope
 
-```
-SELECT ST_Extent(way) FROM planet_osm_polygon;
-SELECT ST_ExteriorRing(ST_Envelope(ST_Collect(GEOMETRY))) FROM contour10;
-SELECT ST_Envelope(ST_Collect(GEOMETRY)) FROM contour10;
-```
+`SELECT ST_Extent(way) FROM planet_osm_polygon;`
+
+`SELECT ST_ExteriorRing(ST_Envelope(ST_Collect(GEOMETRY))) FROM contour10;`
+
+`SELECT ST_Envelope(ST_Collect(GEOMETRY)) FROM contour10;`
 
 Make grid (world)
 
