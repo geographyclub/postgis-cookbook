@@ -1,5 +1,7 @@
 # postgis-cookbook
 
+My most copied and pasted commands working with spatial data in psql and bash.
+
 ## TABLE OF CONTENTS
 
 1. [General commands](#1-General-commands)  
