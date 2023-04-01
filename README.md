@@ -9,7 +9,7 @@ Useful commands for working with spatial data in psql and bash.
 3. [Exporting](#3-Exporting)
 4. [Basic operations](#4-Basic-operations)
 5. [Spatial operations](#5-Spatial-operations)
-6. [Dataset examples](#5-Dataset-examples)
+6. [Dataset examples](#6-Dataset-examples)
 
 ## 1. Starting out
 
