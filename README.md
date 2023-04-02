@@ -43,8 +43,6 @@ SET postgis.backend = geos;
 
 ## 2. Importing
 
-Import spatial data.
-
 Import vector
 
 ```
