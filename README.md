@@ -46,13 +46,13 @@ SET postgis.backend = geos;
 Import vector
 
 ```
-###
-# Some useful options:  
-# -skipfailures  
-# -nlt PROMOTE_TO_MULTI  
-# -lco precision=NO  
-# --config OGR_GEOMETRY_ACCEPT_UNCLOSED_RING NO
-###
+#===============================================#
+# Some useful options:  						#
+# -skipfailures  								#
+# -nlt PROMOTE_TO_MULTI  						#
+# -lco precision=NO  							#
+# --config OGR_GEOMETRY_ACCEPT_UNCLOSED_RING NO	#
+#===============================================#
 
 # from file
 ogr2ogr -f PostgreSQL PG:dbname=world wwf_terr_ecos_dissolve.shp -nlt POLYGON -nln wwf_ecoregion
@@ -165,16 +165,6 @@ tables=`psql -d world -P tuples_only=1 -c '\dt' |awk -F" " '/ne_/ {print $3","}'
 psql -d world -c "DROP TABLE ${tables%?};";
 ```
 
-Random select
-
-`CREATE TABLE contour100m_points1000 AS SELECT * FROM contour100m_points TABLESAMPLE SYSTEM ((1000 * 100) / 5100000.0);`
-
-`SELECT * FROM contour100m_raw WHERE fid IN (SELECT fid FROM contour100m_raw ORDER BY RANDOM() LIMIT 100000);`
-
-Distinct select
-
-`SELECT DISTINCT ON (taxonid) taxonid, vernacularname FROM gbif_vernacular WHERE language IN ('en') ORDER BY taxonid, vernacularname;`
-
 Add important columns
 
 ```
@@ -266,6 +256,20 @@ Select hstore keys
 Select boolean type
 
 `SELECT b.name, COUNT(b.name) FROM points_us a, acs_2019_5yr_place b WHERE ST_Intersects(a.wkb_geometry, b."Shape") AND ((a.other_tags->'%amenity%')::boolean) GROUP BY b.name ORDER BY COUNT(b.name);`
+
+Random select
+
+`CREATE TABLE contour100m_points1000 AS SELECT * FROM contour100m_points TABLESAMPLE SYSTEM ((1000 * 100) / 5100000.0);`
+
+`SELECT * FROM contour100m_raw WHERE fid IN (SELECT fid FROM contour100m_raw ORDER BY RANDOM() LIMIT 100000);`
+
+Distinct select
+
+`SELECT DISTINCT ON (taxonid) taxonid, vernacularname FROM gbif_vernacular WHERE language IN ('en') ORDER BY taxonid, vernacularname;`
+
+Select
+
+`CREATE TABLE bangkok_toronto_points_neighbourhoods AS SELECT * FROM bangkok_toronto_points WHERE place IN ('neighbourhood');`
 
 Replace string
 
