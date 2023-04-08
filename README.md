@@ -4,14 +4,14 @@ Useful commands for working with spatial data in psql and bash.
 
 ## TABLE OF CONTENTS
 
-1. [Starting out](#1-Starting-out)  
-2. [Importing](#2-Importing)  
-3. [Exporting](#3-Exporting)
-4. [Basic operations](#4-Basic-operations)
-5. [Spatial operations](#5-Spatial-operations)
-6. [Dataset examples](#6-Dataset-examples)
+1. [Starting out](Starting-out)  
+2. [Importing](Importing)  
+3. [Exporting](Exporting)
+4. [Basic operations](Basic-operations)
+5. [Spatial operations](Spatial-operations)
+6. [Dataset examples](Dataset-examples)
 
-## 1. Starting out
+## Starting out
 
 Sign in for the first time
 
@@ -41,7 +41,7 @@ SET postgis.backend = sfcgal;
 SET postgis.backend = geos;
 ```
 
-## 2. Importing
+## Importing
 
 Import vector
 
@@ -84,7 +84,7 @@ Copy table to table
 
 `psql -d world -c "CREATE TABLE ne_10m_admin_0_countries_3857 AS TABLE ne_10m_admin_0_countries;"`
 
-## 3. Exporting
+## Exporting
 
 Export table to svg files
 
@@ -142,7 +142,7 @@ ogr2ogr -overwrite -f "SQLite" -dsco SPATIALITE=YES avh.sqlite PG:dbname=contour
 pgsql2shp -f "test" -u steve weather "SELECT metar.station_id,metar.temp_c,ST_MakeLine(metar.geom,metar.translated) FROM metar_20180320_183305 AS metar;
 ```
 
-## 4. Basic operations
+## Basic operations
 
 List tables
 
@@ -282,7 +282,7 @@ Aggregate
 
 `CREATE TABLE vernacularname_agg AS SELECT taxonid,string_agg(vernacularname,';') FROM vernacularname GROUP BY taxonid;`
 
-## 5. Spatial operations
+## Spatial operations
 
 Print available epsg/srid
 
@@ -315,7 +315,7 @@ Extract geometry collection
 
 `UPDATE places_voronoi set geom = ST_CollectionExtract(ST_VoronoiPolygons(b.geom),3) FROM places b;`
 
-Reproject multipolygons w/ tolerance error
+Reproject
 
 ```
 # with intersection
@@ -573,7 +573,7 @@ Text as polygons (using width_bucket to scale letters)
 
 `DROP TABLE IF EXISTS ne_10m_admin_0_map_subunits_letters; CREATE TABLE ne_10m_admin_0_map_subunits_letters AS SELECT name, ST_SetSRID(ST_Translate(ST_Scale(ST_Letters(upper(name_en)), width_bucket(area,0,200,5)*0.01, width_bucket(area,0,200,5)*0.01), ST_XMIN(geom) + ((ST_X(ST_Centroid(geom))-ST_XMIN(geom))/2), ST_Y(ST_Centroid(geom))), 4326) geom FROM ne_10m_admin_0_map_subunits;`
 
-## 6. Dataset examples
+## Dataset examples
 
 ### Hydroatlas
 
