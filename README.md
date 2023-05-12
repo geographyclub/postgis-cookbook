@@ -586,9 +586,15 @@ ogr2ogr -nln ${osmfile%.*.*}_lines -t_srs "EPSG:3857" --config OSM_MAX_TMPFILE_S
 ogr2ogr -nln ${osmfile%.*.*}_polygons -t_srs "EPSG:3857" -nlt promote_to_multi --config OSM_MAX_TMPFILE_SIZE 1000 --config OGR_INTERLEAVED_READING YES --config PG_USE_COPY YES -f PGDump -overwrite -skipfailures /vsistdout/ ${osmfile} multipolygons | psql -d osm -f -
 ```
 
-Select train stations
+Select stations
 
-`SELECT name, other_tags FROM bangkok_points WHERE other_tags LIKE '%"public_transport"=>"station"%';`
+````
+# select all public transport stations
+SELECT name, other_tags FROM bangkok_points WHERE other_tags LIKE '%"public_transport"=>"station"%';
+
+# create table of subways stations
+CREATE TABLE bangkok_subway_stations AS SELECT * FROM bangkok_points WHERE other_tags LIKE '%station"=>"subway"%';
+```
 
 ### Hydroatlas
 
