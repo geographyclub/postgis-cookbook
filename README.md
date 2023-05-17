@@ -577,12 +577,13 @@ Text as polygons (using width_bucket to scale letters)
 
 ### OpenStreetMap
 
-Import points, lines & polygons
+Import points, lines, multilines & polygons
 
 ```
 osmfile=uzbekistan-latest.osm.pbf
 ogr2ogr -nln ${osmfile%.*.*}_points -t_srs "EPSG:3857" --config OSM_MAX_TMPFILE_SIZE 1000 --config OGR_INTERLEAVED_READING YES --config PG_USE_COPY YES -f PGDump -overwrite -skipfailures /vsistdout/ ${osmfile} points | psql -d osm -f -
 ogr2ogr -nln ${osmfile%.*.*}_lines -t_srs "EPSG:3857" --config OSM_MAX_TMPFILE_SIZE 1000 --config OGR_INTERLEAVED_READING YES --config PG_USE_COPY YES -f PGDump -overwrite -skipfailures /vsistdout/ ${osmfile} lines | psql -d osm -f -
+ogr2ogr -nln ${osmfile%.*.*}_multilines -t_srs "EPSG:3857" -nlt promote_to_multi --config OSM_MAX_TMPFILE_SIZE 1000 --config OGR_INTERLEAVED_READING YES --config PG_USE_COPY YES -f PGDump -overwrite -skipfailures /vsistdout/ ${osmfile} multilinestrings | psql -d osm -f -
 ogr2ogr -nln ${osmfile%.*.*}_polygons -t_srs "EPSG:3857" -nlt promote_to_multi --config OSM_MAX_TMPFILE_SIZE 1000 --config OGR_INTERLEAVED_READING YES --config PG_USE_COPY YES -f PGDump -overwrite -skipfailures /vsistdout/ ${osmfile} multipolygons | psql -d osm -f -
 ```
 
