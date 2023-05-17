@@ -587,7 +587,7 @@ ogr2ogr -nln ${osmfile%.*.*}_multilines -t_srs "EPSG:3857" -nlt promote_to_multi
 ogr2ogr -nln ${osmfile%.*.*}_polygons -t_srs "EPSG:3857" -nlt promote_to_multi --config OSM_MAX_TMPFILE_SIZE 1000 --config OGR_INTERLEAVED_READING YES --config PG_USE_COPY YES -f PGDump -overwrite -skipfailures /vsistdout/ ${osmfile} multipolygons | psql -d osm -f -
 ```
 
-Select stations
+Public transport
 
 ```
 # select all public transport stations
