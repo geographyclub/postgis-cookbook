@@ -588,7 +588,7 @@ ogr2ogr -nln ${osmfile%.*.*}_polygons -t_srs "EPSG:3857" -nlt promote_to_multi -
 
 Select stations
 
-````
+```
 # select all public transport stations
 SELECT name, other_tags FROM bangkok_points WHERE other_tags LIKE '%"public_transport"=>"station"%';
 
