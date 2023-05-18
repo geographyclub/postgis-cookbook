@@ -46,13 +46,13 @@ SET postgis.backend = geos;
 Import vector
 
 ```
-#===============================================#
-# Some useful options:  						#
-# -skipfailures  								#
-# -nlt PROMOTE_TO_MULTI  						#
-# -lco precision=NO  							#
-# --config OGR_GEOMETRY_ACCEPT_UNCLOSED_RING NO	#
-#===============================================#
+#===============================================
+# Some useful options:  						
+# -skipfailures  								
+# -nlt PROMOTE_TO_MULTI  						
+# -lco precision=NO  							
+# --config OGR_GEOMETRY_ACCEPT_UNCLOSED_RING NO	
+#===============================================
 
 # from file
 ogr2ogr -f PostgreSQL PG:dbname=world wwf_terr_ecos_dissolve.shp -nlt POLYGON -nln wwf_ecoregion
