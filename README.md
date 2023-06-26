@@ -318,16 +318,26 @@ Extract geometry collection
 Reproject
 
 ```
-# with intersection
-CREATE TABLE urbanareas_3857 AS SELECT * FROM urbanareas;
-ALTER TABLE urbanareas_3857 ALTER COLUMN geom type geometry;
-UPDATE urbanareas_3857 SET geom = ST_Intersection(ST_MakeEnvelope(-179, -89, 179, 89, 4326),geom);
+# reproject
+CREATE TABLE ne_10m_admin_0_countries_lakes_3857 AS SELECT * FROM ne_10m_admin_0_countries_lakes;
+ALTER TABLE ne_10m_admin_0_countries_lakes_3857 ALTER COLUMN geom type geometry;
+UPDATE ne_10m_admin_0_countries_lakes_3857 SET geom = ST_Transform(ST_SetSRID(geom,4326),3857);
 
-# with contains
-CREATE TABLE geonames_3857 AS SELECT * FROM geonames WHERE ST_Contains(ST_MakeEnvelope(-179, -89, 179, 89, 4326),geom);
-SELECT UpdateGeometrySRID('hydroriver_simple_3857', 'shape', 3857);
-UPDATE hydroriver_simple_3857 SET shape = ST_Transform(ST_SetSRID(shape,4326),3857);
+# with contain
+CREATE TABLE ne_10m_admin_0_countries_lakes_3857 AS SELECT * FROM ne_10m_admin_0_countries_lakes WHERE ST_Contains(ST_MakeEnvelope(-180, -90, 180, 90, 4326),geom);
+ALTER TABLE ne_10m_admin_0_countries_lakes_3857 ALTER COLUMN geom type geometry;
+UPDATE ne_10m_admin_0_countries_lakes_3857 SET geom = ST_Transform(ST_SetSRID(geom,4326),3857);
+
+# with intersection
+CREATE TABLE ne_10m_admin_0_countries_lakes_3857 AS SELECT * FROM ne_10m_admin_0_countries_lakes;
+ALTER TABLE ne_10m_admin_0_countries_lakes_3857 ALTER COLUMN geom type geometry;
+UPDATE ne_10m_admin_0_countries_lakes_3857 SET geom = ST_Intersection(ST_MakeEnvelope(-20037508.34, -20048966.1,
+20037508.34, 20048966.1, 3857), ST_Transform(ST_SetSRID(geom,4326),3857));
 ```
+
+Update SRID
+
+`SELECT UpdateGeometrySRID('hydroriver_simple_3857', 'shape', 3857);`
 
 Translate
 
