@@ -587,7 +587,7 @@ Text as polygons (using width_bucket to scale letters)
 
 ### OpenStreetMap
 
-Import points, lines, multilines & polygons
+Import points, lines, multilines & polygons from shell
 
 ```
 osmfile=uzbekistan-latest.osm.pbf
@@ -597,7 +597,14 @@ ogr2ogr -nln ${osmfile%.*}_multilines -t_srs "EPSG:3857" -nlt promote_to_multi -
 ogr2ogr -nln ${osmfile%.*}_polygons -t_srs "EPSG:3857" -nlt promote_to_multi --config OSM_MAX_TMPFILE_SIZE 1000 --config OGR_INTERLEAVED_READING YES --config PG_USE_COPY YES -f PGDump -overwrite -skipfailures /vsistdout/ ${osmfile} multipolygons | psql -d osm -f -
 ```
 
-Public transport
+Working with other_tags
+
+```
+# list other_tags
+SELECT DISTINCT other_tags FROM bangkok_polygons WHERE other_tags IS NOT NULL ORDER BY other_tags;
+```
+
+Transportation
 
 ```
 # select all public transport stations
