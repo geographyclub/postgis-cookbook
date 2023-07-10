@@ -430,9 +430,9 @@ Multibuffers
 
 `CREATE TABLE places_buffers AS SELECT a.name, '0' AS buffer, b.geom FROM places a, grid02 b WHERE ST_Intersects(a.geom, b.geom) UNION SELECT a.name, '01' AS buffer, b.geom FROM places a, grid02 b WHERE ST_Intersects(ST_Buffer(a.geom,0.1), b.geom);`
 
-Dissolve buffers
+Dissolve variable width buffers
 
-`CREATE TABLE hydroriver_buffer1 AS WITH buffer AS (SELECT ST_Buffer(shape,upland_skm*0.000001) geom FROM hydroriver WHERE upland_skm >= 10000) SELECT (ST_Dump(ST_Union(geom))).geom::GEOMETRY(POLYGON,4326) geom FROM buffer;`
+`CREATE TABLE riveratlas_v10_simple1_buffer AS WITH buffer AS (SELECT ST_Buffer(shape,width_bucket(upland_skm,0,10000,10)*0.01) geom FROM riveratlas_v10_simple1 WHERE upland_skm >= 1000) SELECT (ST_Dump(ST_Union(geom))).geom::GEOMETRY(POLYGON,4326) geom FROM buffer;`
 
 Dissolve/union
 
