@@ -422,17 +422,18 @@ Medial axis
 
 `SELECT ST_ApproximateMedialAxis(geom) FROM countries;`
 
-Buffer
+Buffers
 
-`UPDATE places_voronoi_buffer1 SET geom = st_buffer(geom, 1, 'endcap=square join=miter');`
+```
+# simple
+UPDATE places_voronoi_buffer1 SET geom = st_buffer(geom, 1, 'endcap=square join=miter');
 
-Multibuffers
+# multibuffers
+CREATE TABLE places_buffers AS SELECT a.name, '0' AS buffer, b.geom FROM places a, grid02 b WHERE ST_Intersects(a.geom, b.geom) UNION SELECT a.name, '01' AS buffer, b.geom FROM places a, grid02 b WHERE ST_Intersects(ST_Buffer(a.geom,0.1), b.geom);
 
-`CREATE TABLE places_buffers AS SELECT a.name, '0' AS buffer, b.geom FROM places a, grid02 b WHERE ST_Intersects(a.geom, b.geom) UNION SELECT a.name, '01' AS buffer, b.geom FROM places a, grid02 b WHERE ST_Intersects(ST_Buffer(a.geom,0.1), b.geom);`
-
-Dissolve variable width buffers
-
-`CREATE TABLE riveratlas_v10_simple1_buffer AS WITH buffer AS (SELECT ST_Buffer(shape,width_bucket(upland_skm,0,10000,10)*0.01) geom FROM riveratlas_v10_simple1 WHERE upland_skm >= 1000) SELECT (ST_Dump(ST_Union(geom))).geom::GEOMETRY(POLYGON,4326) geom FROM buffer;`
+# variable width buffers
+CREATE TABLE riveratlas_v10_simple1_buffer AS WITH buffer AS (SELECT ST_Buffer(shape,width_bucket(upland_skm,0,10000,10)*0.01) geom FROM riveratlas_v10_simple1 WHERE upland_skm >= 1000) SELECT (ST_Dump(ST_Union(geom))).geom::GEOMETRY(POLYGON,4326) geom FROM buffer;
+```
 
 Dissolve/union
 
@@ -443,6 +444,14 @@ Dissolve/union
 `UPDATE grid04_countries a SET geom = (SELECT ST_Multi(ST_Union(b.geom))::GEOMETRY(MULTIPOLYGON, 4326) FROM grid04 b WHERE ST_Intersects(a.geom, b.geom));`
 
 `CREATE TABLE wwf_ecoregion AS SELECT eco_name, realm_name, biome_name, ST_Union(geom) AS geom FROM wwf_ecoregion_test GROUP BY eco_name, realm_name, biome_name;`
+
+Difference
+
+```
+# subtract river buffers from basin
+CREATE TABLE basinatlas_v10_lev01_rivers AS SELECT * FROM basinatlas_v10_lev01;
+UPDATE basinatlas_v10_lev01_rivers a SET shape = ST_Difference(a.shape,b.geom) FROM riveratlas_v10_simple1_buffer b;
+```
 
 Aggregate by geom
 
