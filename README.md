@@ -616,6 +616,12 @@ SELECT DISTINCT other_tags FROM bangkok_polygons WHERE other_tags IS NOT NULL OR
 Transportation
 
 ```
+# dissolve highways by name
+CREATE TABLE bangkok_lines_dissolve AS SELECT name, highway, ST_Union(wkb_geometry) wkb_geometry FROM bangkok_lines GROUP BY name, highway; 
+
+# buffer highways by type
+CREATE TABLE bangkok_lines_buffer5 AS SELECT highway, (ST_Dump(ST_Union(ST_Buffer(wkb_geometry,5)))).geom::GEOMETRY(POLYGON,3857) wkb_geometry FROM bangkok_lines GROUP BY highway;
+
 # select all public transport stations
 SELECT name, other_tags FROM bangkok_points WHERE other_tags LIKE '%"public_transport"=>"station"%';
 
@@ -640,6 +646,10 @@ echo $(psql -qAtX -d world -c '\d basinatlas_v10_lev01' | grep -v "shape" | sed 
 for a in {01..12}; do
   psql -d world -c "CREATE TABLE basinatlas_v10_lev${a}_buffer0 AS SELECT objectid,hybas_id,next_down,next_sink,main_bas,dist_sink,dist_main,sub_area,up_area,pfaf_id,endo,coast,order_,sort,dis_m3_pyr,dis_m3_pmn,dis_m3_pmx,run_mm_syr,inu_pc_smn,inu_pc_umn,inu_pc_smx,inu_pc_umx,inu_pc_slt,inu_pc_ult,lka_pc_sse,lka_pc_use,lkv_mc_usu,rev_mc_usu,dor_pc_pva,ria_ha_ssu,ria_ha_usu,riv_tc_ssu,riv_tc_usu,gwt_cm_sav,ele_mt_sav,ele_mt_uav,ele_mt_smn,ele_mt_smx,slp_dg_sav,slp_dg_uav,sgr_dk_sav,clz_cl_smj,cls_cl_smj,tmp_dc_syr,tmp_dc_uyr,tmp_dc_smn,tmp_dc_smx,tmp_dc_s01,tmp_dc_s02,tmp_dc_s03,tmp_dc_s04,tmp_dc_s05,tmp_dc_s06,tmp_dc_s07,tmp_dc_s08,tmp_dc_s09,tmp_dc_s10,tmp_dc_s11,tmp_dc_s12,pre_mm_syr,pre_mm_uyr,pre_mm_s01,pre_mm_s02,pre_mm_s03,pre_mm_s04,pre_mm_s05,pre_mm_s06,pre_mm_s07,pre_mm_s08,pre_mm_s09,pre_mm_s10,pre_mm_s11,pre_mm_s12,pet_mm_syr,pet_mm_uyr,pet_mm_s01,pet_mm_s02,pet_mm_s03,pet_mm_s04,pet_mm_s05,pet_mm_s06,pet_mm_s07,pet_mm_s08,pet_mm_s09,pet_mm_s10,pet_mm_s11,pet_mm_s12,aet_mm_syr,aet_mm_uyr,aet_mm_s01,aet_mm_s02,aet_mm_s03,aet_mm_s04,aet_mm_s05,aet_mm_s06,aet_mm_s07,aet_mm_s08,aet_mm_s09,aet_mm_s10,aet_mm_s11,aet_mm_s12,ari_ix_sav,ari_ix_uav,cmi_ix_syr,cmi_ix_uyr,cmi_ix_s01,cmi_ix_s02,cmi_ix_s03,cmi_ix_s04,cmi_ix_s05,cmi_ix_s06,cmi_ix_s07,cmi_ix_s08,cmi_ix_s09,cmi_ix_s10,cmi_ix_s11,cmi_ix_s12,snw_pc_syr,snw_pc_uyr,snw_pc_smx,snw_pc_s01,snw_pc_s02,snw_pc_s03,snw_pc_s04,snw_pc_s05,snw_pc_s06,snw_pc_s07,snw_pc_s08,snw_pc_s09,snw_pc_s10,snw_pc_s11,snw_pc_s12,glc_cl_smj,glc_pc_s01,glc_pc_s02,glc_pc_s03,glc_pc_s04,glc_pc_s05,glc_pc_s06,glc_pc_s07,glc_pc_s08,glc_pc_s09,glc_pc_s10,glc_pc_s11,glc_pc_s12,glc_pc_s13,glc_pc_s14,glc_pc_s15,glc_pc_s16,glc_pc_s17,glc_pc_s18,glc_pc_s19,glc_pc_s20,glc_pc_s21,glc_pc_s22,glc_pc_u01,glc_pc_u02,glc_pc_u03,glc_pc_u04,glc_pc_u05,glc_pc_u06,glc_pc_u07,glc_pc_u08,glc_pc_u09,glc_pc_u10,glc_pc_u11,glc_pc_u12,glc_pc_u13,glc_pc_u14,glc_pc_u15,glc_pc_u16,glc_pc_u17,glc_pc_u18,glc_pc_u19,glc_pc_u20,glc_pc_u21,glc_pc_u22,pnv_cl_smj,pnv_pc_s01,pnv_pc_s02,pnv_pc_s03,pnv_pc_s04,pnv_pc_s05,pnv_pc_s06,pnv_pc_s07,pnv_pc_s08,pnv_pc_s09,pnv_pc_s10,pnv_pc_s11,pnv_pc_s12,pnv_pc_s13,pnv_pc_s14,pnv_pc_s15,pnv_pc_u01,pnv_pc_u02,pnv_pc_u03,pnv_pc_u04,pnv_pc_u05,pnv_pc_u06,pnv_pc_u07,pnv_pc_u08,pnv_pc_u09,pnv_pc_u10,pnv_pc_u11,pnv_pc_u12,pnv_pc_u13,pnv_pc_u14,pnv_pc_u15,wet_cl_smj,wet_pc_sg1,wet_pc_ug1,wet_pc_sg2,wet_pc_ug2,wet_pc_s01,wet_pc_s02,wet_pc_s03,wet_pc_s04,wet_pc_s05,wet_pc_s06,wet_pc_s07,wet_pc_s08,wet_pc_s09,wet_pc_u01,wet_pc_u02,wet_pc_u03,wet_pc_u04,wet_pc_u05,wet_pc_u06,wet_pc_u07,wet_pc_u08,wet_pc_u09,for_pc_sse,for_pc_use,crp_pc_sse,crp_pc_use,pst_pc_sse,pst_pc_use,ire_pc_sse,ire_pc_use,gla_pc_sse,gla_pc_use,prm_pc_sse,prm_pc_use,pac_pc_sse,pac_pc_use,tbi_cl_smj,tec_cl_smj,fmh_cl_smj,fec_cl_smj,cly_pc_sav,cly_pc_uav,slt_pc_sav,slt_pc_uav,snd_pc_sav,snd_pc_uav,soc_th_sav,soc_th_uav,swc_pc_syr,swc_pc_uyr,swc_pc_s01,swc_pc_s02,swc_pc_s03,swc_pc_s04,swc_pc_s05,swc_pc_s06,swc_pc_s07,swc_pc_s08,swc_pc_s09,swc_pc_s10,swc_pc_s11,swc_pc_s12,lit_cl_smj,kar_pc_sse,kar_pc_use,ero_kh_sav,ero_kh_uav,pop_ct_ssu,pop_ct_usu,ppd_pk_sav,ppd_pk_uav,urb_pc_sse,urb_pc_use,nli_ix_sav,nli_ix_uav,rdd_mk_sav,rdd_mk_uav,hft_ix_s93,hft_ix_u93,hft_ix_s09,hft_ix_u09,gad_id_smj,gdp_ud_sav,gdp_ud_ssu,gdp_ud_usu,hdi_ix_sav,shape_length,shape_area,dem_mean,aspect_mean, ST_Buffer(shape,0) FROM basinatlas_v10_lev${a};"
 done
+
+# buffer rivers
+CREATE TABLE riveratlas_v10_simple1_buffer_upland_skm_500 AS SELECT ST_Buffer(shape,width_bucket(upland_skm,0,1000,10)*0.005) geom FROM riveratlas_v10_simple1 WHERE upland_skm >= 500;
+CREATE TABLE riveratlas_v10_simple1_buffer_500_dissolve AS SELECT (ST_Dump(ST_Union(geom))).geom::GEOMETRY(POLYGON,4326) geom FROM riveratlas_v10_simple1_buffer_upland_skm_500;
 ```
 
 Sample raster
