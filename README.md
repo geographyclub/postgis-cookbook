@@ -599,14 +599,21 @@ Text as polygons (using width_bucket to scale letters)
 Import points, lines, multilines & polygons from shell
 
 ```
+# for hstore: -lco COLUMN_TYPES=other_tags=hstore
 osmfile=uzbekistan-latest.osm.pbf
-ogr2ogr -nln ${osmfile%.*}_points -t_srs "EPSG:3857" --config OSM_MAX_TMPFILE_SIZE 1000 --config OGR_INTERLEAVED_READING YES --config PG_USE_COPY YES -f PGDump -overwrite -skipfailures /vsistdout/ ${osmfile} points | psql -d osm -f -
-ogr2ogr -nln ${osmfile%.*}_lines -t_srs "EPSG:3857" --config OSM_MAX_TMPFILE_SIZE 1000 --config OGR_INTERLEAVED_READING YES --config PG_USE_COPY YES -f PGDump -overwrite -skipfailures /vsistdout/ ${osmfile} lines | psql -d osm -f -
-ogr2ogr -nln ${osmfile%.*}_multilines -t_srs "EPSG:3857" -nlt promote_to_multi --config OSM_MAX_TMPFILE_SIZE 1000 --config OGR_INTERLEAVED_READING YES --config PG_USE_COPY YES -f PGDump -overwrite -skipfailures /vsistdout/ ${osmfile} multilinestrings | psql -d osm -f -
-ogr2ogr -nln ${osmfile%.*}_polygons -t_srs "EPSG:3857" -nlt promote_to_multi --config OSM_MAX_TMPFILE_SIZE 1000 --config OGR_INTERLEAVED_READING YES --config PG_USE_COPY YES -f PGDump -overwrite -skipfailures /vsistdout/ ${osmfile} multipolygons | psql -d osm -f -
+ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nln ${osmfile%.osm.pbf}_points PG:dbname=osm ${osmfile} points
+ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nln ${osmfile%.osm.pbf}_lines PG:dbname=osm ${osmfile} lines
+ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nlt promote_to_multi -nln ${osmfile%.osm.pbf}_multilines PG:dbname=osm ${osmfile} multilinestrings
+ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nlt promote_to_multi -nln ${osmfile%.osm.pbf}_polygons PG:dbname=osm ${osmfile} multipolygons
+
+# NOT WORKING
+ogr2ogr -nln ${osmfile%.*}_points -t_srs "EPSG:3857" -lco COLUMN_TYPES=other_tags=hstore --config OSM_MAX_TMPFILE_SIZE 1000 --config OGR_INTERLEAVED_READING YES --config PG_USE_COPY YES -f PGDump -overwrite -skipfailures /vsistdout/ ${osmfile} points | psql -d osm -f -
+ogr2ogr -nln ${osmfile%.*}_lines -t_srs "EPSG:3857" -lco COLUMN_TYPES=other_tags=hstore --config OSM_MAX_TMPFILE_SIZE 1000 --config OGR_INTERLEAVED_READING YES --config PG_USE_COPY YES -f PGDump -overwrite -skipfailures /vsistdout/ ${osmfile} lines | psql -d osm -f -
+ogr2ogr -nln ${osmfile%.*}_multilines -t_srs "EPSG:3857" -lco COLUMN_TYPES=other_tags=hstore -nlt promote_to_multi --config OSM_MAX_TMPFILE_SIZE 1000 --config OGR_INTERLEAVED_READING YES --config PG_USE_COPY YES -f PGDump -overwrite -skipfailures /vsistdout/ ${osmfile} multilinestrings | psql -d osm -f -
+ogr2ogr -nln ${osmfile%.*}_polygons -t_srs "EPSG:3857" -lco COLUMN_TYPES=other_tags=hstore -nlt promote_to_multi --config OSM_MAX_TMPFILE_SIZE 1000 --config OGR_INTERLEAVED_READING YES --config PG_USE_COPY YES -f PGDump -overwrite -skipfailures /vsistdout/ ${osmfile} multipolygons | psql -d osm -f -
 ```
 
-Use ST_IsValid to work with polygons
+Use ST_IsValid to skip broken polygons
 
 `SELECT ST_Buffer(wkb_geometry,0) wkb_geometry FROM bangkok_polygons WHERE building IS NOT NULL AND ST_IsValid(wkb_geometry)`
 
