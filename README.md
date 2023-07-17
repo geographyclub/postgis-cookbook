@@ -606,6 +606,10 @@ ogr2ogr -nln ${osmfile%.*}_multilines -t_srs "EPSG:3857" -nlt promote_to_multi -
 ogr2ogr -nln ${osmfile%.*}_polygons -t_srs "EPSG:3857" -nlt promote_to_multi --config OSM_MAX_TMPFILE_SIZE 1000 --config OGR_INTERLEAVED_READING YES --config PG_USE_COPY YES -f PGDump -overwrite -skipfailures /vsistdout/ ${osmfile} multipolygons | psql -d osm -f -
 ```
 
+Use ST_IsValid to work with polygons
+
+`SELECT ST_Buffer(wkb_geometry,0) wkb_geometry FROM bangkok_polygons WHERE building IS NOT NULL AND ST_IsValid(wkb_geometry)`
+
 Working with other_tags
 
 ```
