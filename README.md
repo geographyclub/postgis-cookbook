@@ -590,7 +590,7 @@ psql -d world -c "copy (select subregion, round(st_x(geom)), round(st_y(geom)) f
 
 Text as polygons (using width_bucket to scale letters)
 
-`DROP TABLE IF EXISTS ne_10m_admin_0_map_subunits_letters; CREATE TABLE ne_10m_admin_0_map_subunits_letters AS SELECT name, ST_SetSRID(ST_Translate(ST_Scale(ST_Letters(upper(name_en)), width_bucket(area,0,200,5)*0.01, width_bucket(area,0,200,5)*0.01), ST_XMIN(geom) + ((ST_X(ST_Centroid(geom))-ST_XMIN(geom))/2), ST_Y(ST_Centroid(geom))), 4326) geom FROM ne_10m_admin_0_map_subunits;`
+`DROP TABLE IF EXISTS ne_10m_admin_0_map_subunits_letters; CREATE TABLE ne_10m_admin_0_map_subunits_letters AS SELECT name, type, ST_SetSRID(ST_Translate(ST_Scale(ST_Letters(upper(name_en)), width_bucket(area,0,300,5)*0.01, width_bucket(area,0,300,5)*0.01), ST_XMIN(geom) + ((ST_X(ST_Centroid(geom))-ST_XMIN(geom))/2), ST_Y(ST_Centroid(geom))), 4326) geom FROM ne_10m_admin_0_map_subunits;`
 
 ## Dataset examples
 
@@ -616,6 +616,10 @@ ogr2ogr -nln ${osmfile%.*}_polygons -t_srs "EPSG:3857" -lco COLUMN_TYPES=other_t
 Use ST_IsValid to skip broken polygons
 
 `SELECT ST_Buffer(wkb_geometry,0) wkb_geometry FROM bangkok_polygons WHERE building IS NOT NULL AND ST_IsValid(wkb_geometry)`
+
+Extent polygon split by highways
+
+`CREATE TABLE seoul_extent_highways AS SELECT ST_CollectionExtract(ST_Split(a.wkb_geometry,b.wkb_geometry),3) wkb_geometry FROM (SELECT ST_Extent(wkb_geometry)::GEOMETRY(POLYGON,3857) wkb_geometry FROM seoul_lines) a, (SELECT (ST_Union(wkb_geometry))::GEOMETRY(MULTILINESTRING,3857) wkb_geometry FROM seoul_lines WHERE highway IN ('motorway','trunk','primary','secondary')) b;`
 
 Working with other_tags
 
