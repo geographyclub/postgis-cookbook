@@ -613,7 +613,7 @@ ogr2ogr -nln ${osmfile%.*}_multilines -t_srs "EPSG:3857" -lco COLUMN_TYPES=other
 ogr2ogr -nln ${osmfile%.*}_polygons -t_srs "EPSG:3857" -lco COLUMN_TYPES=other_tags=hstore -nlt promote_to_multi --config OSM_MAX_TMPFILE_SIZE 1000 --config OGR_INTERLEAVED_READING YES --config PG_USE_COPY YES -f PGDump -overwrite -skipfailures /vsistdout/ ${osmfile} multipolygons | psql -d osm -f -
 ```
 
-Use ST_IsValid to skip broken polygons
+Use ST_IsValid often
 
 `SELECT ST_Buffer(wkb_geometry,0) wkb_geometry FROM bangkok_polygons WHERE building IS NOT NULL AND ST_IsValid(wkb_geometry)`
 
@@ -623,11 +623,17 @@ Extent polygon split by highways
 place=bangkok
 psql -d osm -c "DROP TABLE IF EXISTS ${place}_extent_highways; CREATE TABLE ${place}_extent_highways AS SELECT (ST_Dump(ST_CollectionExtract(ST_Split(a.wkb_geometry,b.wkb_geometry),3))).geom::GEOMETRY(POLYGON,3857) wkb_geometry FROM (SELECT ST_Extent(wkb_geometry)::GEOMETRY(POLYGON,3857) wkb_geometry FROM ${place}_lines) a, (SELECT (ST_Union(wkb_geometry))::GEOMETRY(MULTILINESTRING,3857) wkb_geometry FROM ${place}_lines WHERE highway IN ('motorway','trunk','primary','secondary','tertiary','residential')) b;"
 
-# add spatial index
+# add indexes
+psql -d osm -c "ALTER TABLE ${place}_extent_highways ADD COLUMN fid serial PRIMARY KEY;"
 psql -d osm -c "CREATE INDEX ${place}_extent_highways_gid ON ${place}_extent_highways USING GIST (wkb_geometry);"
 
-# add other tags
-psql -d osm -c "DROP TABLE IF EXISTS ${place}_extent_highways_tags; CREATE TABLE ${place}_extent_highways_tags AS SELECT a.other_tags, b.wkb_geometry FROM ${place}_polygons a, ${place}_extent_highways b WHERE ST_Intersects(a.wkb_geometry, b.wkb_geometry);"
+# add tags
+psql -d osm -c "ALTER TABLE ${place}_extent_highways ADD COLUMN landuse text;"
+psql -d osm -c "UPDATE ${place}_extent_highways SET landuse = NULL; UPDATE ${place}_extent_highways a SET landuse = b.landuse FROM ${place}_polygons b WHERE ST_Intersects(a.wkb_geometry,ST_Buffer(b.wkb_geometry,0)) AND b.landuse IS NOT NULL AND ST_IsValid(b.wkb_geometry);"
+
+psql -d osm -c "ALTER TABLE ${place}_extent_highways ADD COLUMN natural_type text;"
+psql -d osm -c "UPDATE ${place}_extent_highways SET natural_type = NULL; UPDATE ${place}_extent_highways a SET natural_type = b.natural FROM ${place}_polygons b WHERE ST_Intersects(a.wkb_geometry,ST_Buffer(b.wkb_geometry,0)) AND b.natural IS NOT NULL AND ST_IsValid(b.wkb_geometry);"
+
 ```
 
 Working with other_tags
