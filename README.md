@@ -619,7 +619,16 @@ Use ST_IsValid to skip broken polygons
 
 Extent polygon split by highways
 
-`CREATE TABLE seoul_extent_highways AS SELECT ST_CollectionExtract(ST_Split(a.wkb_geometry,b.wkb_geometry),3) wkb_geometry FROM (SELECT ST_Extent(wkb_geometry)::GEOMETRY(POLYGON,3857) wkb_geometry FROM seoul_lines) a, (SELECT (ST_Union(wkb_geometry))::GEOMETRY(MULTILINESTRING,3857) wkb_geometry FROM seoul_lines WHERE highway IN ('motorway','trunk','primary','secondary')) b;`
+```
+place=bangkok
+psql -d osm -c "DROP TABLE IF EXISTS ${place}_extent_highways; CREATE TABLE ${place}_extent_highways AS SELECT (ST_Dump(ST_CollectionExtract(ST_Split(a.wkb_geometry,b.wkb_geometry),3))).geom::GEOMETRY(POLYGON,3857) wkb_geometry FROM (SELECT ST_Extent(wkb_geometry)::GEOMETRY(POLYGON,3857) wkb_geometry FROM ${place}_lines) a, (SELECT (ST_Union(wkb_geometry))::GEOMETRY(MULTILINESTRING,3857) wkb_geometry FROM ${place}_lines WHERE highway IN ('motorway','trunk','primary','secondary','tertiary','residential')) b;"
+
+# add spatial index
+psql -d osm -c "CREATE INDEX ${place}_extent_highways_gid ON ${place}_extent_highways USING GIST (wkb_geometry);"
+
+# add other tags
+psql -d osm -c "DROP TABLE IF EXISTS ${place}_extent_highways_tags; CREATE TABLE ${place}_extent_highways_tags AS SELECT a.other_tags, b.wkb_geometry FROM ${place}_polygons a, ${place}_extent_highways b WHERE ST_Intersects(a.wkb_geometry, b.wkb_geometry);"
+```
 
 Working with other_tags
 
