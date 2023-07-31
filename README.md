@@ -607,41 +607,16 @@ Import points, lines, multilines & polygons from shell
 
 ```
 # for hstore: -lco COLUMN_TYPES=other_tags=hstore
-osmfile=uzbekistan-latest.osm.pbf
+osmfile=java-latest.osm.pbf
 ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nln ${osmfile%.osm.pbf}_points PG:dbname=osm ${osmfile} points
 ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nln ${osmfile%.osm.pbf}_lines PG:dbname=osm ${osmfile} lines
 ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nlt promote_to_multi -nln ${osmfile%.osm.pbf}_multilines PG:dbname=osm ${osmfile} multilinestrings
 ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nlt promote_to_multi -nln ${osmfile%.osm.pbf}_polygons PG:dbname=osm ${osmfile} multipolygons
-
-# NOT WORKING
-ogr2ogr -nln ${osmfile%.*}_points -t_srs "EPSG:3857" -lco COLUMN_TYPES=other_tags=hstore --config OSM_MAX_TMPFILE_SIZE 1000 --config OGR_INTERLEAVED_READING YES --config PG_USE_COPY YES -f PGDump -overwrite -skipfailures /vsistdout/ ${osmfile} points | psql -d osm -f -
-ogr2ogr -nln ${osmfile%.*}_lines -t_srs "EPSG:3857" -lco COLUMN_TYPES=other_tags=hstore --config OSM_MAX_TMPFILE_SIZE 1000 --config OGR_INTERLEAVED_READING YES --config PG_USE_COPY YES -f PGDump -overwrite -skipfailures /vsistdout/ ${osmfile} lines | psql -d osm -f -
-ogr2ogr -nln ${osmfile%.*}_multilines -t_srs "EPSG:3857" -lco COLUMN_TYPES=other_tags=hstore -nlt promote_to_multi --config OSM_MAX_TMPFILE_SIZE 1000 --config OGR_INTERLEAVED_READING YES --config PG_USE_COPY YES -f PGDump -overwrite -skipfailures /vsistdout/ ${osmfile} multilinestrings | psql -d osm -f -
-ogr2ogr -nln ${osmfile%.*}_polygons -t_srs "EPSG:3857" -lco COLUMN_TYPES=other_tags=hstore -nlt promote_to_multi --config OSM_MAX_TMPFILE_SIZE 1000 --config OGR_INTERLEAVED_READING YES --config PG_USE_COPY YES -f PGDump -overwrite -skipfailures /vsistdout/ ${osmfile} multipolygons | psql -d osm -f -
 ```
 
-Use ST_IsValid often
+Use ST_IsValid for broken polygons
 
 `SELECT ST_Buffer(wkb_geometry,0) wkb_geometry FROM bangkok_polygons WHERE building IS NOT NULL AND ST_IsValid(wkb_geometry)`
-
-Extent polygon split by highways
-
-```
-place=bangkok
-psql -d osm -c "DROP TABLE IF EXISTS ${place}_extent_highways; CREATE TABLE ${place}_extent_highways AS SELECT (ST_Dump(ST_CollectionExtract(ST_Split(a.wkb_geometry,b.wkb_geometry),3))).geom::GEOMETRY(POLYGON,3857) wkb_geometry FROM (SELECT ST_Extent(wkb_geometry)::GEOMETRY(POLYGON,3857) wkb_geometry FROM ${place}_lines) a, (SELECT (ST_Union(wkb_geometry))::GEOMETRY(MULTILINESTRING,3857) wkb_geometry FROM ${place}_lines WHERE highway IN ('motorway','trunk','primary','secondary','tertiary','residential')) b;"
-
-# add indexes
-psql -d osm -c "ALTER TABLE ${place}_extent_highways ADD COLUMN fid serial PRIMARY KEY;"
-psql -d osm -c "CREATE INDEX ${place}_extent_highways_gid ON ${place}_extent_highways USING GIST (wkb_geometry);"
-
-# add tags
-psql -d osm -c "ALTER TABLE ${place}_extent_highways ADD COLUMN landuse text;"
-psql -d osm -c "UPDATE ${place}_extent_highways SET landuse = NULL; UPDATE ${place}_extent_highways a SET landuse = b.landuse FROM ${place}_polygons b WHERE ST_Intersects(a.wkb_geometry,ST_Buffer(b.wkb_geometry,0)) AND b.landuse IS NOT NULL AND ST_IsValid(b.wkb_geometry);"
-
-psql -d osm -c "ALTER TABLE ${place}_extent_highways ADD COLUMN natural_type text;"
-psql -d osm -c "UPDATE ${place}_extent_highways SET natural_type = NULL; UPDATE ${place}_extent_highways a SET natural_type = b.natural FROM ${place}_polygons b WHERE ST_Intersects(a.wkb_geometry,ST_Buffer(b.wkb_geometry,0)) AND b.natural IS NOT NULL AND ST_IsValid(b.wkb_geometry);"
-
-```
 
 Working with other_tags
 
@@ -650,20 +625,46 @@ Working with other_tags
 SELECT DISTINCT other_tags FROM bangkok_polygons WHERE other_tags IS NOT NULL ORDER BY other_tags;
 ```
 
-Transportation
+Highways
 
 ```
 # dissolve highways by name
-CREATE TABLE bangkok_lines_dissolve AS SELECT name, highway, ST_Union(wkb_geometry) wkb_geometry FROM bangkok_lines GROUP BY name, highway; 
+CREATE TABLE bangkok_highway_dissolve AS SELECT name, highway, ST_Union(wkb_geometry) wkb_geometry FROM bangkok_lines GROUP BY name, highway; 
+
+# dissolve highways by neighborhood
+SELECT ST_Union(ST_Intersection(a.wkb_geometry,b.wkb_geometry)) wkb_geometry FROM bangkok_lines a, bangkok_polygons b WHERE b.admin_level IN ('8') GROUP BY b.wkb_geometry;
 
 # buffer highways by type
-CREATE TABLE bangkok_lines_buffer5 AS SELECT highway, (ST_Dump(ST_Union(ST_Buffer(wkb_geometry,5)))).geom::GEOMETRY(POLYGON,3857) wkb_geometry FROM bangkok_lines GROUP BY highway;
+CREATE TABLE bangkok_highway_buffer5 AS SELECT highway, (ST_Dump(ST_Union(ST_Buffer(wkb_geometry,5)))).geom::GEOMETRY(POLYGON,3857) wkb_geometry FROM bangkok_lines GROUP BY highway;
+```
 
+Public transportation
+
+```
 # select all public transport stations
 SELECT name, other_tags FROM bangkok_points WHERE other_tags LIKE '%"public_transport"=>"station"%';
 
 # create table of subways stations
 CREATE TABLE bangkok_subway_stations AS SELECT * FROM bangkok_points WHERE other_tags LIKE '%station"=>"subway"%';
+```
+
+Batch processing from shell
+
+```
+place=amsterdam
+# highway to polygon
+psql -d osm -c "DROP TABLE IF EXISTS ${place}_highway_polygons; CREATE TABLE ${place}_highway_polygons AS SELECT (ST_Dump(ST_CollectionExtract(ST_Split(a.wkb_geometry,b.wkb_geometry),3))).geom::GEOMETRY(POLYGON,3857) wkb_geometry FROM (SELECT ST_Extent(wkb_geometry)::GEOMETRY(POLYGON,3857) wkb_geometry FROM ${place}_lines) a, (SELECT (ST_Union(wkb_geometry))::GEOMETRY(MULTILINESTRING,3857) wkb_geometry FROM ${place}_lines WHERE highway IN ('motorway','trunk','primary','secondary','tertiary','residential')) b;"
+# add indexes
+psql -d osm -c "ALTER TABLE ${place}_highway_polygons ADD COLUMN fid serial PRIMARY KEY;"
+psql -d osm -c "CREATE INDEX ${place}_highway_polygons_gid ON ${place}_highway_polygons USING GIST (wkb_geometry);"
+# add landuse
+psql -d osm -c "ALTER TABLE ${place}_highway_polygons ADD COLUMN landuse text; UPDATE ${place}_highway_polygons SET landuse = NULL; UPDATE ${place}_highway_polygons a SET landuse = b.landuse FROM ${place}_polygons b WHERE ST_Intersects(a.wkb_geometry,ST_Buffer(b.wkb_geometry,0)) AND b.landuse IS NOT NULL AND ST_IsValid(b.wkb_geometry);"
+# add natural
+psql -d osm -c "ALTER TABLE ${place}_highway_polygons ADD COLUMN \"natural\" text; UPDATE ${place}_highway_polygons SET \"natural\" = NULL; UPDATE ${place}_highway_polygons a SET \"natural\" = b.natural FROM ${place}_polygons b WHERE ST_Intersects(a.wkb_geometry,ST_Buffer(b.wkb_geometry,0)) AND b.natural IS NOT NULL AND ST_IsValid(b.wkb_geometry);"
+
+# count amenties by neighborhood
+psql -d osm -c "ALTER TABLE ${place}_polygons ADD COLUMN amenity_count int;"
+psql -d osm -c "WITH stats AS (SELECT a.osm_id, count(b.other_tags LIKE '%amenity%') count FROM ${place}_polygons a, ${place}_points b WHERE a.admin_level IS NOT NULL AND b.other_tags LIKE '%amenity%' AND ST_Intersects(a.wkb_geometry, b.wkb_geometry) GROUP BY a.osm_id) UPDATE ${place}_polygons a SET amenity_count = stats.count FROM stats WHERE a.osm_id = stats.osm_id;"
 ```
 
 ### Hydroatlas
