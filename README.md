@@ -521,11 +521,13 @@ Intersects
 
 Make extent/envelope
 
-`SELECT ST_Extent(way) FROM planet_osm_polygon;`
+```
+# from geometry
+SELECT ST_Extent(way) FROM planet_osm_polygon;
 
-`SELECT ST_ExteriorRing(ST_Envelope(ST_Collect(GEOMETRY))) FROM contour10;`
-
-`SELECT ST_Envelope(ST_Collect(GEOMETRY)) FROM contour10;`
+# from coordinates
+CREATE TABLE worldatlas_extent_polygons AS SELECT longitude, latitude, x_min, x_max, y_min, y_max, ST_SetSRID(ST_MakeEnvelope(x_min, y_min, x_max, y_max),3857) FROM worldatlas_extents;
+```
 
 Make grid
 
@@ -607,7 +609,7 @@ Import points, lines, multilines & polygons from shell
 
 ```
 # for hstore: -lco COLUMN_TYPES=other_tags=hstore
-osmfile=java-latest.osm.pbf
+osmfile=Johannesburg.osm.pbf
 ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nln ${osmfile%.osm.pbf}_points PG:dbname=osm ${osmfile} points
 ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nln ${osmfile%.osm.pbf}_lines PG:dbname=osm ${osmfile} lines
 ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nlt promote_to_multi -nln ${osmfile%.osm.pbf}_multilines PG:dbname=osm ${osmfile} multilinestrings
@@ -651,7 +653,7 @@ CREATE TABLE bangkok_subway_stations AS SELECT * FROM bangkok_points WHERE other
 Batch processing from shell
 
 ```
-place=amsterdam
+place=johannesburg
 # highway to polygon
 psql -d osm -c "DROP TABLE IF EXISTS ${place}_highway_polygons; CREATE TABLE ${place}_highway_polygons AS SELECT (ST_Dump(ST_CollectionExtract(ST_Split(a.wkb_geometry,b.wkb_geometry),3))).geom::GEOMETRY(POLYGON,3857) wkb_geometry FROM (SELECT ST_Extent(wkb_geometry)::GEOMETRY(POLYGON,3857) wkb_geometry FROM ${place}_lines) a, (SELECT (ST_Union(wkb_geometry))::GEOMETRY(MULTILINESTRING,3857) wkb_geometry FROM ${place}_lines WHERE highway IN ('motorway','trunk','primary','secondary','tertiary','residential')) b;"
 # add indexes
