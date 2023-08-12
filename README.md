@@ -4,12 +4,12 @@ Useful commands for working with spatial data in psql and bash.
 
 ## TABLE OF CONTENTS
 
-1. [Starting out](#Starting-out)  
-2. [Importing](#Importing)  
-3. [Exporting](#Exporting)
-4. [Basic operations](#Basic-operations)
-5. [Spatial operations](#Spatial-operations)
-6. [Dataset examples](#Dataset-examples)
+1. [Starting out](#starting-out)  
+2. [Importing](#importing)  
+3. [Exporting](#exporting)
+4. [Basic operations](#basic-operations)
+5. [Spatial operations](#spatial-operations)
+6. [Dataset examples](#dataset-examples)
 
 ## Starting out
 
