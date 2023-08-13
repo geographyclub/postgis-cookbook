@@ -706,6 +706,10 @@ for a in {01..12}; do
 done
 ```
 
+Dissolve rivers
+
+`CREATE TABLE riveratlas_v10_dissolve AS SELECT (ST_Dump(ST_Union(Shape))).geom::GEOMETRY(LINESTRING,4326) geom FROM riveratlas_v10 GROUP BY hybas_l12;`
+
 ### Natural Earth
 
 Intersection
