@@ -41,6 +41,10 @@ SET postgis.backend = sfcgal;
 SET postgis.backend = geos;
 ```
 
+Restart server
+
+`sudo systemctl restart postgresql`
+
 ## Importing
 
 Import vector
@@ -542,10 +546,8 @@ CREATE TABLE grid0001 AS SELECT (ST_PixelAsPolygons(ST_AddBand(ST_MakeEmptyRaste
 Make triangles
 
 ```
-# voronoi
-CREATE TABLE hood_voronoi AS SELECT (ST_DUMP(ST_VoronoiPolygons(ST_Collect(p.way)))).geom FROM planet_osm_point AS p WHERE place IN ('neighbourhood');
-
-CREATE TABLE points_04013_voronoi_amenity AS WITH b AS (SELECT (ST_Dump(ST_VoronoiPolygons(ST_Collect(wkb_geometry)))).geom::GEOMETRY(POLYGON,4269) wkb_geometry FROM points_04013 WHERE other_tags LIKE '%amenity%') SELECT ST_Intersection(a."SHAPE", b.wkb_geometry) wkb_geometry FROM county a, b WHERE ST_Intersects(a."SHAPE", b.wkb_geometry) AND a.geoid = '04013';
+# voronoi (with extend_to)
+CREATE TABLE basinatlas_v10_lev06_voronoi AS WITH a AS (SELECT (ST_Dump(ST_VoronoiPolygons(ST_Collect(ST_Centroid(shape)),0,(SELECT ST_Collect(shape) FROM basinatlas_v10_lev01)))).geom::GEOMETRY(POLYGON,4326) shape FROM basinatlas_v10_lev06) SELECT objectid,up_area,dem_mean,aspect_mean,a.shape FROM a, basinatlas_v10_lev06 b WHERE ST_Intersects(ST_Centroid(a.shape), b.shape);
 
 # delaunay
 CREATE TABLE places_delaunay AS SELECT (ST_Dump(ST_DelaunayTriangles(ST_Union(geom),0.001,1))).geom::geometry(LINESTRING,4326) AS geom FROM places;
@@ -653,7 +655,7 @@ CREATE TABLE bangkok_subway_stations AS SELECT * FROM bangkok_points WHERE other
 Batch processing from shell
 
 ```
-place=johannesburg
+place=thailand
 # highway to polygon
 psql -d osm -c "DROP TABLE IF EXISTS ${place}_highway_polygons; CREATE TABLE ${place}_highway_polygons AS SELECT (ST_Dump(ST_CollectionExtract(ST_Split(a.wkb_geometry,b.wkb_geometry),3))).geom::GEOMETRY(POLYGON,3857) wkb_geometry FROM (SELECT ST_Extent(wkb_geometry)::GEOMETRY(POLYGON,3857) wkb_geometry FROM ${place}_lines) a, (SELECT (ST_Union(wkb_geometry))::GEOMETRY(MULTILINESTRING,3857) wkb_geometry FROM ${place}_lines WHERE highway IN ('motorway','trunk','primary','secondary','tertiary','residential')) b;"
 # add indexes
@@ -679,17 +681,16 @@ ogr2ogr -f PostgreSQL PG:dbname=world RiverATLAS_v10.gdb RiverATLAS_v10
 ogr2ogr -f PostgreSQL PG:dbname=world -nlt PROMOTE_TO_MULTI BasinATLAS_v10.gdb
 ```
 
-Buffer hack for processing basins
+Zero buffer hack
 
 ```
+# list columns
 echo $(psql -qAtX -d world -c '\d basinatlas_v10_lev01' | grep -v "shape" | sed -e 's/|.*//g' | paste -sd',')
-for a in {01..12}; do
-  psql -d world -c "CREATE TABLE basinatlas_v10_lev${a}_buffer0 AS SELECT objectid,hybas_id,next_down,next_sink,main_bas,dist_sink,dist_main,sub_area,up_area,pfaf_id,endo,coast,order_,sort,dis_m3_pyr,dis_m3_pmn,dis_m3_pmx,run_mm_syr,inu_pc_smn,inu_pc_umn,inu_pc_smx,inu_pc_umx,inu_pc_slt,inu_pc_ult,lka_pc_sse,lka_pc_use,lkv_mc_usu,rev_mc_usu,dor_pc_pva,ria_ha_ssu,ria_ha_usu,riv_tc_ssu,riv_tc_usu,gwt_cm_sav,ele_mt_sav,ele_mt_uav,ele_mt_smn,ele_mt_smx,slp_dg_sav,slp_dg_uav,sgr_dk_sav,clz_cl_smj,cls_cl_smj,tmp_dc_syr,tmp_dc_uyr,tmp_dc_smn,tmp_dc_smx,tmp_dc_s01,tmp_dc_s02,tmp_dc_s03,tmp_dc_s04,tmp_dc_s05,tmp_dc_s06,tmp_dc_s07,tmp_dc_s08,tmp_dc_s09,tmp_dc_s10,tmp_dc_s11,tmp_dc_s12,pre_mm_syr,pre_mm_uyr,pre_mm_s01,pre_mm_s02,pre_mm_s03,pre_mm_s04,pre_mm_s05,pre_mm_s06,pre_mm_s07,pre_mm_s08,pre_mm_s09,pre_mm_s10,pre_mm_s11,pre_mm_s12,pet_mm_syr,pet_mm_uyr,pet_mm_s01,pet_mm_s02,pet_mm_s03,pet_mm_s04,pet_mm_s05,pet_mm_s06,pet_mm_s07,pet_mm_s08,pet_mm_s09,pet_mm_s10,pet_mm_s11,pet_mm_s12,aet_mm_syr,aet_mm_uyr,aet_mm_s01,aet_mm_s02,aet_mm_s03,aet_mm_s04,aet_mm_s05,aet_mm_s06,aet_mm_s07,aet_mm_s08,aet_mm_s09,aet_mm_s10,aet_mm_s11,aet_mm_s12,ari_ix_sav,ari_ix_uav,cmi_ix_syr,cmi_ix_uyr,cmi_ix_s01,cmi_ix_s02,cmi_ix_s03,cmi_ix_s04,cmi_ix_s05,cmi_ix_s06,cmi_ix_s07,cmi_ix_s08,cmi_ix_s09,cmi_ix_s10,cmi_ix_s11,cmi_ix_s12,snw_pc_syr,snw_pc_uyr,snw_pc_smx,snw_pc_s01,snw_pc_s02,snw_pc_s03,snw_pc_s04,snw_pc_s05,snw_pc_s06,snw_pc_s07,snw_pc_s08,snw_pc_s09,snw_pc_s10,snw_pc_s11,snw_pc_s12,glc_cl_smj,glc_pc_s01,glc_pc_s02,glc_pc_s03,glc_pc_s04,glc_pc_s05,glc_pc_s06,glc_pc_s07,glc_pc_s08,glc_pc_s09,glc_pc_s10,glc_pc_s11,glc_pc_s12,glc_pc_s13,glc_pc_s14,glc_pc_s15,glc_pc_s16,glc_pc_s17,glc_pc_s18,glc_pc_s19,glc_pc_s20,glc_pc_s21,glc_pc_s22,glc_pc_u01,glc_pc_u02,glc_pc_u03,glc_pc_u04,glc_pc_u05,glc_pc_u06,glc_pc_u07,glc_pc_u08,glc_pc_u09,glc_pc_u10,glc_pc_u11,glc_pc_u12,glc_pc_u13,glc_pc_u14,glc_pc_u15,glc_pc_u16,glc_pc_u17,glc_pc_u18,glc_pc_u19,glc_pc_u20,glc_pc_u21,glc_pc_u22,pnv_cl_smj,pnv_pc_s01,pnv_pc_s02,pnv_pc_s03,pnv_pc_s04,pnv_pc_s05,pnv_pc_s06,pnv_pc_s07,pnv_pc_s08,pnv_pc_s09,pnv_pc_s10,pnv_pc_s11,pnv_pc_s12,pnv_pc_s13,pnv_pc_s14,pnv_pc_s15,pnv_pc_u01,pnv_pc_u02,pnv_pc_u03,pnv_pc_u04,pnv_pc_u05,pnv_pc_u06,pnv_pc_u07,pnv_pc_u08,pnv_pc_u09,pnv_pc_u10,pnv_pc_u11,pnv_pc_u12,pnv_pc_u13,pnv_pc_u14,pnv_pc_u15,wet_cl_smj,wet_pc_sg1,wet_pc_ug1,wet_pc_sg2,wet_pc_ug2,wet_pc_s01,wet_pc_s02,wet_pc_s03,wet_pc_s04,wet_pc_s05,wet_pc_s06,wet_pc_s07,wet_pc_s08,wet_pc_s09,wet_pc_u01,wet_pc_u02,wet_pc_u03,wet_pc_u04,wet_pc_u05,wet_pc_u06,wet_pc_u07,wet_pc_u08,wet_pc_u09,for_pc_sse,for_pc_use,crp_pc_sse,crp_pc_use,pst_pc_sse,pst_pc_use,ire_pc_sse,ire_pc_use,gla_pc_sse,gla_pc_use,prm_pc_sse,prm_pc_use,pac_pc_sse,pac_pc_use,tbi_cl_smj,tec_cl_smj,fmh_cl_smj,fec_cl_smj,cly_pc_sav,cly_pc_uav,slt_pc_sav,slt_pc_uav,snd_pc_sav,snd_pc_uav,soc_th_sav,soc_th_uav,swc_pc_syr,swc_pc_uyr,swc_pc_s01,swc_pc_s02,swc_pc_s03,swc_pc_s04,swc_pc_s05,swc_pc_s06,swc_pc_s07,swc_pc_s08,swc_pc_s09,swc_pc_s10,swc_pc_s11,swc_pc_s12,lit_cl_smj,kar_pc_sse,kar_pc_use,ero_kh_sav,ero_kh_uav,pop_ct_ssu,pop_ct_usu,ppd_pk_sav,ppd_pk_uav,urb_pc_sse,urb_pc_use,nli_ix_sav,nli_ix_uav,rdd_mk_sav,rdd_mk_uav,hft_ix_s93,hft_ix_u93,hft_ix_s09,hft_ix_u09,gad_id_smj,gdp_ud_sav,gdp_ud_ssu,gdp_ud_usu,hdi_ix_sav,shape_length,shape_area,dem_mean,aspect_mean, ST_Buffer(shape,0) FROM basinatlas_v10_lev${a};"
-done
 
-# buffer rivers
-CREATE TABLE riveratlas_v10_simple1_buffer_upland_skm_500 AS SELECT ST_Buffer(shape,width_bucket(upland_skm,0,1000,10)*0.005) geom FROM riveratlas_v10_simple1 WHERE upland_skm >= 500;
-CREATE TABLE riveratlas_v10_simple1_buffer_500_dissolve AS SELECT (ST_Dump(ST_Union(geom))).geom::GEOMETRY(POLYGON,4326) geom FROM riveratlas_v10_simple1_buffer_upland_skm_500;
+# loop thru all basin levels
+for a in {01..12}; do
+  psql -d world -c "CREATE TABLE basinatlas_v10_lev${a}_buffer0 AS SELECT objectid,hybas_id,next_down,next_sink,main_bas,dist_sink,dist_main,sub_area,up_area,pfaf_id,endo,coast,order_,sort,dis_m3_pyr,dis_m3_pmn,dis_m3_pmx,run_mm_syr,inu_pc_smn,inu_pc_umn,inu_pc_smx,inu_pc_umx,inu_pc_slt,inu_pc_ult,lka_pc_sse,lka_pc_use,lkv_mc_usu,rev_mc_usu,dor_pc_pva,ria_ha_ssu,ria_ha_usu,riv_tc_ssu,riv_tc_usu,gwt_cm_sav,ele_mt_sav,ele_mt_uav,ele_mt_smn,ele_mt_smx,slp_dg_sav,slp_dg_uav,sgr_dk_sav,clz_cl_smj,cls_cl_smj,tmp_dc_syr,tmp_dc_uyr,tmp_dc_smn,tmp_dc_smx,tmp_dc_s01,tmp_dc_s02,tmp_dc_s03,tmp_dc_s04,tmp_dc_s05,tmp_dc_s06,tmp_dc_s07,tmp_dc_s08,tmp_dc_s09,tmp_dc_s10,tmp_dc_s11,tmp_dc_s12,pre_mm_syr,pre_mm_uyr,pre_mm_s01,pre_mm_s02,pre_mm_s03,pre_mm_s04,pre_mm_s05,pre_mm_s06,pre_mm_s07,pre_mm_s08,pre_mm_s09,pre_mm_s10,pre_mm_s11,pre_mm_s12,pet_mm_syr,pet_mm_uyr,pet_mm_s01,pet_mm_s02,pet_mm_s03,pet_mm_s04,pet_mm_s05,pet_mm_s06,pet_mm_s07,pet_mm_s08,pet_mm_s09,pet_mm_s10,pet_mm_s11,pet_mm_s12,aet_mm_syr,aet_mm_uyr,aet_mm_s01,aet_mm_s02,aet_mm_s03,aet_mm_s04,aet_mm_s05,aet_mm_s06,aet_mm_s07,aet_mm_s08,aet_mm_s09,aet_mm_s10,aet_mm_s11,aet_mm_s12,ari_ix_sav,ari_ix_uav,cmi_ix_syr,cmi_ix_uyr,cmi_ix_s01,cmi_ix_s02,cmi_ix_s03,cmi_ix_s04,cmi_ix_s05,cmi_ix_s06,cmi_ix_s07,cmi_ix_s08,cmi_ix_s09,cmi_ix_s10,cmi_ix_s11,cmi_ix_s12,snw_pc_syr,snw_pc_uyr,snw_pc_smx,snw_pc_s01,snw_pc_s02,snw_pc_s03,snw_pc_s04,snw_pc_s05,snw_pc_s06,snw_pc_s07,snw_pc_s08,snw_pc_s09,snw_pc_s10,snw_pc_s11,snw_pc_s12,glc_cl_smj,glc_pc_s01,glc_pc_s02,glc_pc_s03,glc_pc_s04,glc_pc_s05,glc_pc_s06,glc_pc_s07,glc_pc_s08,glc_pc_s09,glc_pc_s10,glc_pc_s11,glc_pc_s12,glc_pc_s13,glc_pc_s14,glc_pc_s15,glc_pc_s16,glc_pc_s17,glc_pc_s18,glc_pc_s19,glc_pc_s20,glc_pc_s21,glc_pc_s22,glc_pc_u01,glc_pc_u02,glc_pc_u03,glc_pc_u04,glc_pc_u05,glc_pc_u06,glc_pc_u07,glc_pc_u08,glc_pc_u09,glc_pc_u10,glc_pc_u11,glc_pc_u12,glc_pc_u13,glc_pc_u14,glc_pc_u15,glc_pc_u16,glc_pc_u17,glc_pc_u18,glc_pc_u19,glc_pc_u20,glc_pc_u21,glc_pc_u22,pnv_cl_smj,pnv_pc_s01,pnv_pc_s02,pnv_pc_s03,pnv_pc_s04,pnv_pc_s05,pnv_pc_s06,pnv_pc_s07,pnv_pc_s08,pnv_pc_s09,pnv_pc_s10,pnv_pc_s11,pnv_pc_s12,pnv_pc_s13,pnv_pc_s14,pnv_pc_s15,pnv_pc_u01,pnv_pc_u02,pnv_pc_u03,pnv_pc_u04,pnv_pc_u05,pnv_pc_u06,pnv_pc_u07,pnv_pc_u08,pnv_pc_u09,pnv_pc_u10,pnv_pc_u11,pnv_pc_u12,pnv_pc_u13,pnv_pc_u14,pnv_pc_u15,wet_cl_smj,wet_pc_sg1,wet_pc_ug1,wet_pc_sg2,wet_pc_ug2,wet_pc_s01,wet_pc_s02,wet_pc_s03,wet_pc_s04,wet_pc_s05,wet_pc_s06,wet_pc_s07,wet_pc_s08,wet_pc_s09,wet_pc_u01,wet_pc_u02,wet_pc_u03,wet_pc_u04,wet_pc_u05,wet_pc_u06,wet_pc_u07,wet_pc_u08,wet_pc_u09,for_pc_sse,for_pc_use,crp_pc_sse,crp_pc_use,pst_pc_sse,pst_pc_use,ire_pc_sse,ire_pc_use,gla_pc_sse,gla_pc_use,prm_pc_sse,prm_pc_use,pac_pc_sse,pac_pc_use,tbi_cl_smj,tec_cl_smj,fmh_cl_smj,fec_cl_smj,cly_pc_sav,cly_pc_uav,slt_pc_sav,slt_pc_uav,snd_pc_sav,snd_pc_uav,soc_th_sav,soc_th_uav,swc_pc_syr,swc_pc_uyr,swc_pc_s01,swc_pc_s02,swc_pc_s03,swc_pc_s04,swc_pc_s05,swc_pc_s06,swc_pc_s07,swc_pc_s08,swc_pc_s09,swc_pc_s10,swc_pc_s11,swc_pc_s12,lit_cl_smj,kar_pc_sse,kar_pc_use,ero_kh_sav,ero_kh_uav,pop_ct_ssu,pop_ct_usu,ppd_pk_sav,ppd_pk_uav,urb_pc_sse,urb_pc_use,nli_ix_sav,nli_ix_uav,rdd_mk_sav,rdd_mk_uav,hft_ix_s93,hft_ix_u93,hft_ix_s09,hft_ix_u09,gad_id_smj,gdp_ud_sav,gdp_ud_ssu,gdp_ud_usu,hdi_ix_sav,shape_length,shape_area,dem_mean,aspect_mean, ST_Buffer(shape,0) shape FROM basinatlas_v10_lev${a};"
+done
 ```
 
 Sample raster
@@ -706,19 +707,72 @@ for a in {01..12}; do
 done
 ```
 
+Basins to voronoi polygons
+
+```
+a=06
+psql -d world -c "DROP TABLE IF EXISTS basinatlas_v10_lev${a}_voronoi;"
+psql -d world -c "CREATE TABLE basinatlas_v10_lev${a}_voronoi AS SELECT * FROM basinatlas_v10_lev${a};"
+psql -d world -c "ALTER TABLE basinatlas_v10_lev${a}_voronoi ALTER COLUMN shape TYPE geometry;"
+psql -d world -c "UPDATE basinatlas_v10_lev${a}_voronoi SET shape = ST_Centroid(shape);"
+psql -d world -c "WITH a AS (SELECT (ST_Dump(ST_VoronoiPolygons(ST_Collect(shape)))).geom::GEOMETRY(POLYGON,4326) shape FROM basinatlas_v10_lev${a}_voronoi) UPDATE basinatlas_v10_lev${a}_voronoi b SET shape = a.shape FROM a WHERE ST_Intersects(a.shape,b.shape);"
+psql -d world -c "ALTER TABLE basinatlas_v10_lev${a}_voronoi ALTER COLUMN shape TYPE geometry(POLYGON,4326);"
+psql -d world -c "ALTER TABLE basinatlas_v10_lev${a}_voronoi ADD COLUMN fid serial PRIMARY KEY;"
+psql -d world -c "CREATE INDEX basinatlas_v10_lev${a}_voronoi_gid ON basinatlas_v10_lev${a}_voronoi USING GIST (shape);"
+```
+
+Simplify rivers
+
+```
+psql -d world -c "CREATE TABLE riveratlas_v10_simple1 AS SELECT upland_skm, (ST_SimplifyVW(shape,1))::GEOMETRY(MultiLineString,4326) shape FROM riveratlas_v10;"
+psql -d world -c "ALTER TABLE riveratlas_v10_simple1 ADD COLUMN fid serial PRIMARY KEY;"
+psql -d world -c "CREATE INDEX riveratlas_v10_simple1_gid ON riveratlas_v10_simple1 USING GIST (shape);"
+```
+
+Filter rivers by upland_skm
+
+```
+psql -d world -c "DROP TABLE IF EXISTS riveratlas_v10_simple1_upland_skm_100; CREATE TABLE riveratlas_v10_simple1_upland_skm_100 AS SELECT upland_skm, (shape)::GEOMETRY(MultiLineString,4326) shape FROM riveratlas_v10_simple1 WHERE upland_skm >= 100;"
+psql -d world -c "ALTER TABLE riveratlas_v10_simple1_upland_skm_100 ADD COLUMN fid serial PRIMARY KEY;"
+psql -d world -c "CREATE INDEX riveratlas_v10_simple1_upland_skm_100_gid ON riveratlas_v10_simple1_upland_skm_100 USING GIST (shape);"
+```
+
+Buffer rivers
+
+```
+# buffer
+psql -d world -c "CREATE TABLE riveratlas_v10_simple1_buffer_upland_skm_500 AS SELECT ST_Buffer(shape,width_bucket(upland_skm,0,1000,10)*0.005) geom FROM riveratlas_v10_simple1 WHERE upland_skm >= 500;"
+
+# dissolve
+psql -d world -c "CREATE TABLE riveratlas_v10_simple1_buffer_500_dissolve AS SELECT (ST_Dump(ST_Union(geom))).geom::GEOMETRY(POLYGON,4326) geom FROM riveratlas_v10_simple1_buffer_upland_skm_500;"
+```
+
 Dissolve rivers
 
 ```
 # by basin
-CREATE TABLE riveratlas_v10_dissolve AS SELECT (ST_Dump(ST_Union(Shape))).geom::GEOMETRY(LINESTRING,4326) geom FROM riveratlas_v10 GROUP BY hybas_l12;
+psql -d world -c "CREATE TABLE riveratlas_v10_dissolve AS SELECT (ST_Dump(ST_Union(Shape))).geom::GEOMETRY(LINESTRING,4326) geom FROM riveratlas_v10 GROUP BY hybas_l12;"
 
 # by ecoregion
-CREATE TABLE riveratlas_v10_dissolve AS SELECT (ST_Dump(ST_Union(Shape))).geom::GEOMETRY(LINESTRING,4326) geom FROM riveratlas_v10 GROUP BY tec_cl_cmj;
+psql -d world -c "CREATE TABLE riveratlas_v10_dissolve AS SELECT (ST_Dump(ST_Union(Shape))).geom::GEOMETRY(LINESTRING,4326) geom FROM riveratlas_v10 GROUP BY tec_cl_cmj;"
+```
+
+Intersect rivers and subunit
+
+```
+# list columns
+echo $(psql -qAtX -d world -c '\d riveratlas_v10' | grep -v "shape" | sed -e 's/|.*//g' | paste -sd',')
+
+# intersection
+subunit='Thailand'
+psql -d world -c "CREATE TABLE riveratlas_v10_${subunit} AS SELECT objectid,hyriv_id,next_down,main_riv,length_km,dist_dn_km,dist_up_km,catch_skm,upland_skm,endorheic,dis_av_cms,ord_stra,ord_clas,ord_flow,hybas_l12,dis_m3_pyr,dis_m3_pmn,dis_m3_pmx,run_mm_cyr,inu_pc_cmn,inu_pc_umn,inu_pc_cmx,inu_pc_umx,inu_pc_clt,inu_pc_ult,lka_pc_cse,lka_pc_use,lkv_mc_usu,rev_mc_usu,dor_pc_pva,ria_ha_csu,ria_ha_usu,riv_tc_csu,riv_tc_usu,gwt_cm_cav,ele_mt_cav,ele_mt_uav,ele_mt_cmn,ele_mt_cmx,slp_dg_cav,slp_dg_uav,sgr_dk_rav,clz_cl_cmj,cls_cl_cmj,tmp_dc_cyr,tmp_dc_uyr,tmp_dc_cmn,tmp_dc_cmx,tmp_dc_c01,tmp_dc_c02,tmp_dc_c03,tmp_dc_c04,tmp_dc_c05,tmp_dc_c06,tmp_dc_c07,tmp_dc_c08,tmp_dc_c09,tmp_dc_c10,tmp_dc_c11,tmp_dc_c12,pre_mm_cyr,pre_mm_uyr,pre_mm_c01,pre_mm_c02,pre_mm_c03,pre_mm_c04,pre_mm_c05,pre_mm_c06,pre_mm_c07,pre_mm_c08,pre_mm_c09,pre_mm_c10,pre_mm_c11,pre_mm_c12,pet_mm_cyr,pet_mm_uyr,pet_mm_c01,pet_mm_c02,pet_mm_c03,pet_mm_c04,pet_mm_c05,pet_mm_c06,pet_mm_c07,pet_mm_c08,pet_mm_c09,pet_mm_c10,pet_mm_c11,pet_mm_c12,aet_mm_cyr,aet_mm_uyr,aet_mm_c01,aet_mm_c02,aet_mm_c03,aet_mm_c04,aet_mm_c05,aet_mm_c06,aet_mm_c07,aet_mm_c08,aet_mm_c09,aet_mm_c10,aet_mm_c11,aet_mm_c12,ari_ix_cav,ari_ix_uav,cmi_ix_cyr,cmi_ix_uyr,cmi_ix_c01,cmi_ix_c02,cmi_ix_c03,cmi_ix_c04,cmi_ix_c05,cmi_ix_c06,cmi_ix_c07,cmi_ix_c08,cmi_ix_c09,cmi_ix_c10,cmi_ix_c11,cmi_ix_c12,snw_pc_cyr,snw_pc_uyr,snw_pc_cmx,snw_pc_c01,snw_pc_c02,snw_pc_c03,snw_pc_c04,snw_pc_c05,snw_pc_c06,snw_pc_c07,snw_pc_c08,snw_pc_c09,snw_pc_c10,snw_pc_c11,snw_pc_c12,glc_cl_cmj,glc_pc_c01,glc_pc_c02,glc_pc_c03,glc_pc_c04,glc_pc_c05,glc_pc_c06,glc_pc_c07,glc_pc_c08,glc_pc_c09,glc_pc_c10,glc_pc_c11,glc_pc_c12,glc_pc_c13,glc_pc_c14,glc_pc_c15,glc_pc_c16,glc_pc_c17,glc_pc_c18,glc_pc_c19,glc_pc_c20,glc_pc_c21,glc_pc_c22,glc_pc_u01,glc_pc_u02,glc_pc_u03,glc_pc_u04,glc_pc_u05,glc_pc_u06,glc_pc_u07,glc_pc_u08,glc_pc_u09,glc_pc_u10,glc_pc_u11,glc_pc_u12,glc_pc_u13,glc_pc_u14,glc_pc_u15,glc_pc_u16,glc_pc_u17,glc_pc_u18,glc_pc_u19,glc_pc_u20,glc_pc_u21,glc_pc_u22,pnv_cl_cmj,pnv_pc_c01,pnv_pc_c02,pnv_pc_c03,pnv_pc_c04,pnv_pc_c05,pnv_pc_c06,pnv_pc_c07,pnv_pc_c08,pnv_pc_c09,pnv_pc_c10,pnv_pc_c11,pnv_pc_c12,pnv_pc_c13,pnv_pc_c14,pnv_pc_c15,pnv_pc_u01,pnv_pc_u02,pnv_pc_u03,pnv_pc_u04,pnv_pc_u05,pnv_pc_u06,pnv_pc_u07,pnv_pc_u08,pnv_pc_u09,pnv_pc_u10,pnv_pc_u11,pnv_pc_u12,pnv_pc_u13,pnv_pc_u14,pnv_pc_u15,wet_cl_cmj,wet_pc_cg1,wet_pc_ug1,wet_pc_cg2,wet_pc_ug2,wet_pc_c01,wet_pc_c02,wet_pc_c03,wet_pc_c04,wet_pc_c05,wet_pc_c06,wet_pc_c07,wet_pc_c08,wet_pc_c09,wet_pc_u01,wet_pc_u02,wet_pc_u03,wet_pc_u04,wet_pc_u05,wet_pc_u06,wet_pc_u07,wet_pc_u08,wet_pc_u09,for_pc_cse,for_pc_use,crp_pc_cse,crp_pc_use,pst_pc_cse,pst_pc_use,ire_pc_cse,ire_pc_use,gla_pc_cse,gla_pc_use,prm_pc_cse,prm_pc_use,pac_pc_cse,pac_pc_use,tbi_cl_cmj,tec_cl_cmj,fmh_cl_cmj,fec_cl_cmj,cly_pc_cav,cly_pc_uav,slt_pc_cav,slt_pc_uav,snd_pc_cav,snd_pc_uav,soc_th_cav,soc_th_uav,swc_pc_cyr,swc_pc_uyr,swc_pc_c01,swc_pc_c02,swc_pc_c03,swc_pc_c04,swc_pc_c05,swc_pc_c06,swc_pc_c07,swc_pc_c08,swc_pc_c09,swc_pc_c10,swc_pc_c11,swc_pc_c12,lit_cl_cmj,kar_pc_cse,kar_pc_use,ero_kh_cav,ero_kh_uav,pop_ct_csu,pop_ct_usu,ppd_pk_cav,ppd_pk_uav,urb_pc_cse,urb_pc_use,nli_ix_cav,nli_ix_uav,rdd_mk_cav,rdd_mk_uav,hft_ix_c93,hft_ix_u93,hft_ix_c09,hft_ix_u09,gad_id_cmj,gdp_ud_cav,gdp_ud_csu,gdp_ud_usu,hdi_ix_cav, b.iso_a2, ST_Intersection(a.shape, b.geom) shape FROM riveratlas_v10 a, ne_10m_admin_0_map_subunits b WHERE ST_Intersects(a.shape, b.geom) AND b.name = '${subunit}';"
+psql -d world -c "ALTER TABLE riveratlas_v10_${subunit} ADD COLUMN fid serial PRIMARY KEY;"
+psql -d world -c "CREATE INDEX riveratlas_v10_${subunit}_gid ON riveratlas_v10_${subunit} USING GIST (shape);"
 ```
 
 ### Natural Earth
 
-Intersection
+Intersect subunits and contours
 
 ```
 # get column names
