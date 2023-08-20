@@ -507,7 +507,7 @@ ALTER TABLE wwf_ecoregion_split4 ALTER COLUMN geom TYPE geometry(MULTILINESTRING
 
 Intersection (clipping)
 
-`CREATE TABLE contour10m_superior AS SELECT ST_Intersection(a.geom, b.geom) AS geom FROM contour10m AS a, envelope_superior AS b WHERE ST_Intersects(a.geom, b.geom);`
+`CREATE TABLE contour10m_superior AS SELECT ST_Intersection(a.geom, b.geom) geom FROM contour10m a, envelope_superior b WHERE ST_Intersects(a.geom, b.geom);`
 
 `CREATE TABLE ne_10m_roads_countries AS SELECT a.fid AS fid_road, b.fid AS fid_country, ST_Intersection(a.geom, b.geom) AS geom FROM ne_10m_roads a, ne_10m_admin_0_countries b WHERE ST_Intersects(a.geom, b.geom);`
 
@@ -698,7 +698,7 @@ done
 Basins to voronoi polygons
 
 ```
-a=04
+a=05
 psql -d world -c "DROP TABLE IF EXISTS basinatlas_v10_lev${a}_voronoi;"
 psql -d world -c "CREATE TABLE basinatlas_v10_lev${a}_voronoi AS SELECT * FROM basinatlas_v10_lev${a};"
 psql -d world -c "ALTER TABLE basinatlas_v10_lev${a}_voronoi ALTER COLUMN shape TYPE geometry;"
@@ -751,6 +751,14 @@ psql -d world -c "CREATE INDEX riveratlas_v10_${subunit}_gid ON riveratlas_v10_$
 ```
 
 ### Natural Earth
+
+Add useful columns
+
+```
+# localname from geonames
+ALTER TABLE ne_10m_populated_places ADD COLUMN localname text;
+UPDATE ne_10m_populated_places a SET localname = b.localname FROM geonames b WHERE a.geonamesid = b.geonameid;;
+```
 
 Intersect subunits and contours
 
@@ -850,9 +858,29 @@ CREATE TABLE geonames_mt_rank AS SELECT countrycode, STRING_AGG(CONCAT(name, '..
 CREATE TABLE geonames_top_rank AS SELECT * FROM geonames WHERE pop_rank <=5 OR mt_rank <= 3 OR featurecode IN ('PPLC');
 ```
 
+Add useful columns
+
+```
+# scalerank from natural earth
+ALTER TABLE geonames ADD COLUMN scalerank INT;
+UPDATE geonames a SET scalerank = b.scalerank FROM ne_10m_populated_places b WHERE a.geonameid = b.geonamesid;
+
+# aspect from hydroatlas
+ALTER TABLE geonames ADD COLUMN aspect_lev06 INT;
+UPDATE geonames a SET aspect_lev06 = b.aspect_mean FROM basinatlas_v10_lev06 b WHERE ST_Intersects(a.geom,b.shape);
+```
+
+Filter
+
+```
+# by countrycode
+CREATE TABLE geonames_th AS SELECT * FROM geonames WHERE countrycode = 'TH';
+```
+
 Export
 
 ```
+# nearest contour line
 ogr2ogr -overwrite -update -f "SQLite" -sql "SELECT a.featurecode_name, a.featureclass, (SELECT b.geom FROM contour10m_segments1_5 AS b ORDER BY b.geom <-> ST_GeometryN(ST_Collect(a.geom),1) LIMIT 1) FROM allcountries AS a WHERE a.geom && ST_MakeEnvelope(-123,41,-111,51) AND a.featureclass IN ('T','H','U','V') GROUP BY a.featurecode_name, a.featureclass" export.sqlite -nln geonames -nlt LINESTRING PG:"dbname=topo15
 ```
 
