@@ -286,6 +286,10 @@ Aggregate
 
 `CREATE TABLE vernacularname_agg AS SELECT taxonid,string_agg(vernacularname,';') FROM vernacularname GROUP BY taxonid;`
 
+Select many columns without geom
+
+`$(echo $(psql -qAtX -d world -c '\d basinatlas_v10_lev01' | grep -v "shape" | sed -e 's/^/a./g' -e 's/|.*//g' | paste -sd','))`
+
 ## Spatial operations
 
 Print available epsg/srid
@@ -353,10 +357,6 @@ UPDATE metar_20180320_183305 SET translated=ST_SetSrid(ST_Translate(geom,0.1,0),
 Make valid
 
 `UPDATE polygon_voronoi SET way = ST_MakeValid(way) WHERE NOT ST_IsValid(way);`
-
-Sample raster at points
-
-`UPDATE places a SET dem = ST_Value(r.rast, 1, a.geom) FROM topo15_43200 r WHERE ST_Intersects(r.rast,a.geom);`
 
 Get angle (degrees)
 
@@ -523,6 +523,16 @@ Intersects
 
 `SELECT count(*), c.name FROM countries c JOIN places p ON ST_Intersects(c.geom, p.geom) GROUP BY c.name;`
 
+Sample raster
+
+```
+# at point
+UPDATE places a SET dem = ST_Value(r.rast, 1, a.geom) FROM topo15_43200 r WHERE ST_Intersects(r.rast,a.geom);
+
+# at polygon
+UPDATE basinatlas_v10_lev${a} a SET dem_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320 b WHERE ST_Intersects(b.rast, a.shape);
+```
+
 Make extent/envelope
 
 ```
@@ -546,8 +556,8 @@ CREATE TABLE grid0001 AS SELECT (ST_PixelAsPolygons(ST_AddBand(ST_MakeEmptyRaste
 Make triangles
 
 ```
-# voronoi (with extend_to)
-CREATE TABLE basinatlas_v10_lev06_voronoi AS WITH a AS (SELECT (ST_Dump(ST_VoronoiPolygons(ST_Collect(ST_Centroid(shape)),0,(SELECT ST_Collect(shape) FROM basinatlas_v10_lev01)))).geom::GEOMETRY(POLYGON,4326) shape FROM basinatlas_v10_lev06) SELECT objectid,up_area,dem_mean,aspect_mean,a.shape FROM a, basinatlas_v10_lev06 b WHERE ST_Intersects(ST_Centroid(a.shape), b.shape);
+# voronoi
+CREATE TABLE basinatlas_v10_lev06_voronoi AS WITH a AS (SELECT (ST_Dump(ST_VoronoiPolygons(ST_Collect(ST_Centroid(shape))))).geom::GEOMETRY(POLYGON,4326) shape FROM basinatlas_v10_lev06) SELECT objectid,up_area,dem_mean,aspect_mean,a.shape FROM a, basinatlas_v10_lev06 b WHERE ST_Intersects(ST_Centroid(a.shape), b.shape);
 
 # delaunay
 CREATE TABLE places_delaunay AS SELECT (ST_Dump(ST_DelaunayTriangles(ST_Union(geom),0.001,1))).geom::geometry(LINESTRING,4326) AS geom FROM places;
@@ -564,25 +574,6 @@ CREATE TABLE seoul_highway_polygons AS WITH b AS (SELECT ST_Multi(ST_Node(ST_Col
 
 # lines to polygons (using extent)
 CREATE TABLE ${place}_extent_highways AS SELECT (ST_Dump(ST_CollectionExtract(ST_Split(a.wkb_geometry,b.wkb_geometry),3))).geom::GEOMETRY(POLYGON,3857) wkb_geometry FROM (SELECT ST_Extent(wkb_geometry)::GEOMETRY(POLYGON,3857) wkb_geometry FROM ${place}_lines) a, (SELECT (ST_Union(wkb_geometry))::GEOMETRY(MULTILINESTRING,3857) wkb_geometry FROM ${place}_lines WHERE highway IN ('motorway','trunk','primary','secondary','tertiary','residential')) b;
-```
-
-Contour to delaunay to sample raster
-
-```
-DROP TABLE topo15_43200_100m_simple10_points; drop table topo15_43200_100m_simple10_delaunay;
-CREATE TABLE topo15_43200_100m_simple10_points as select (st_dumppoints(st_simplify(geom,10))).geom::geometry(POINT,4326) as geom FROM topo15_43200_100m;
-CREATE TABLE topo15_43200_100m_simple10_delaunay AS SELECT (ST_Dump(ST_DelaunayTriangles(ST_Union(geom)))).geom::geometry(POLYGON,4326) AS geom FROM topo15_43200_100m_simple10_points;
-ALTER TABLE topo15_43200_100m_simple10_delaunay ADD COLUMN dem_mean int; UPDATE topo15_43200_100m_simple10_delaunay a SET dem_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320 b WHERE ST_Intersects(b.rast, a.geom);
-ALTER TABLE topo15_43200_100m_simple10_delaunay ADD COLUMN aspect_mean int; UPDATE topo15_43200_100m_simple10_delaunay a SET aspect_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320_aspect b WHERE ST_Intersects(b.rast, a.geom);
-```
-
-Basin to voronoi to sample raster
-
-```
-CREATE TABLE basinatlas_v10_lev04_points AS SELECT objectid, (st_dumppoints(st_simplify("Shape",1))).geom::geometry(POINT,4326) as "Shape", aspect_mean FROM basinatlas_v10_lev04;
-CREATE TABLE basinatlas_v10_lev04_voronoi AS SELECT (ST_DUMP(ST_VoronoiPolygons(ST_Collect("Shape")))).geom as "Shape" FROM basinatlas_v10_lev04_points;
-ALTER TABLE basinatlas_v10_lev04_voronoi ADD COLUMN aspect_mean int; UPDATE basinatlas_v10_lev04_voronoi a SET aspect_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320_aspect b WHERE ST_Intersects(b.rast, a."Shape");
-ALTER TABLE basinatlas_v10_lev04_voronoi ADD COLUMN dem_mean int; UPDATE basinatlas_v10_lev04_voronoi a SET dem_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320 b WHERE ST_Intersects(b.rast, a."Shape");
 ```
 
 Line to geometry
@@ -812,7 +803,7 @@ ogr2ogr -f PostgreSQL PG:dbname=world RiverATLAS_v10.gdb RiverATLAS_v10
 ogr2ogr -f PostgreSQL PG:dbname=world -nlt PROMOTE_TO_MULTI BasinATLAS_v10.gdb
 ```
 
-Sample rasters
+Add dem, aspect to basins
 
 ```
 # import rasters
@@ -829,7 +820,7 @@ done
 Basins to voronoi polygons
 
 ```
-a=05
+a=08
 psql -d world -c "DROP TABLE IF EXISTS basinatlas_v10_lev${a}_voronoi;"
 psql -d world -c "CREATE TABLE basinatlas_v10_lev${a}_voronoi AS SELECT * FROM basinatlas_v10_lev${a};"
 psql -d world -c "ALTER TABLE basinatlas_v10_lev${a}_voronoi ALTER COLUMN shape TYPE geometry;"
@@ -838,6 +829,9 @@ psql -d world -c "WITH a AS (SELECT (ST_Dump(ST_VoronoiPolygons(ST_Collect(shape
 psql -d world -c "ALTER TABLE basinatlas_v10_lev${a}_voronoi ALTER COLUMN shape TYPE geometry(POLYGON,4326);"
 psql -d world -c "ALTER TABLE basinatlas_v10_lev${a}_voronoi ADD COLUMN fid serial PRIMARY KEY;"
 psql -d world -c "CREATE INDEX basinatlas_v10_lev${a}_voronoi_gid ON basinatlas_v10_lev${a}_voronoi USING GIST (shape);"
+
+# clip to lev01
+psql -d world -c CREATE TABLE basinatlas_v10_lev${a}_voronoi AS SELECT $(psql -qAtX -d world -c '\d basinatlas_v10_lev01' | grep -v "shape" | sed -e 's/^/a./g' -e 's/|.*//g' | paste -sd','), ST_Intersection(a.shape, b.shape) shape FROM basinatlas_v10_lev${a}_voronoi a, basinatlas_v10_lev01 b WHERE ST_Intersects(a.shape, b.shape);"
 
 # update raster stats
 psql -d world -c "UPDATE basinatlas_v10_lev${a}_voronoi a SET dem_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320 b WHERE ST_Intersects(b.rast, a.shape);"
@@ -876,7 +870,7 @@ echo $(psql -qAtX -d world -c '\d riveratlas_v10' | grep -v "shape" | sed -e 's/
 
 # intersection
 subunit='Thailand'
-psql -d world -c "CREATE TABLE riveratlas_v10_${subunit} AS SELECT objectid,hyriv_id,next_down,main_riv,length_km,dist_dn_km,dist_up_km,catch_skm,upland_skm,endorheic,dis_av_cms,ord_stra,ord_clas,ord_flow,hybas_l12,dis_m3_pyr,dis_m3_pmn,dis_m3_pmx,run_mm_cyr,inu_pc_cmn,inu_pc_umn,inu_pc_cmx,inu_pc_umx,inu_pc_clt,inu_pc_ult,lka_pc_cse,lka_pc_use,lkv_mc_usu,rev_mc_usu,dor_pc_pva,ria_ha_csu,ria_ha_usu,riv_tc_csu,riv_tc_usu,gwt_cm_cav,ele_mt_cav,ele_mt_uav,ele_mt_cmn,ele_mt_cmx,slp_dg_cav,slp_dg_uav,sgr_dk_rav,clz_cl_cmj,cls_cl_cmj,tmp_dc_cyr,tmp_dc_uyr,tmp_dc_cmn,tmp_dc_cmx,tmp_dc_c01,tmp_dc_c02,tmp_dc_c03,tmp_dc_c04,tmp_dc_c05,tmp_dc_c06,tmp_dc_c07,tmp_dc_c08,tmp_dc_c09,tmp_dc_c10,tmp_dc_c11,tmp_dc_c12,pre_mm_cyr,pre_mm_uyr,pre_mm_c01,pre_mm_c02,pre_mm_c03,pre_mm_c04,pre_mm_c05,pre_mm_c06,pre_mm_c07,pre_mm_c08,pre_mm_c09,pre_mm_c10,pre_mm_c11,pre_mm_c12,pet_mm_cyr,pet_mm_uyr,pet_mm_c01,pet_mm_c02,pet_mm_c03,pet_mm_c04,pet_mm_c05,pet_mm_c06,pet_mm_c07,pet_mm_c08,pet_mm_c09,pet_mm_c10,pet_mm_c11,pet_mm_c12,aet_mm_cyr,aet_mm_uyr,aet_mm_c01,aet_mm_c02,aet_mm_c03,aet_mm_c04,aet_mm_c05,aet_mm_c06,aet_mm_c07,aet_mm_c08,aet_mm_c09,aet_mm_c10,aet_mm_c11,aet_mm_c12,ari_ix_cav,ari_ix_uav,cmi_ix_cyr,cmi_ix_uyr,cmi_ix_c01,cmi_ix_c02,cmi_ix_c03,cmi_ix_c04,cmi_ix_c05,cmi_ix_c06,cmi_ix_c07,cmi_ix_c08,cmi_ix_c09,cmi_ix_c10,cmi_ix_c11,cmi_ix_c12,snw_pc_cyr,snw_pc_uyr,snw_pc_cmx,snw_pc_c01,snw_pc_c02,snw_pc_c03,snw_pc_c04,snw_pc_c05,snw_pc_c06,snw_pc_c07,snw_pc_c08,snw_pc_c09,snw_pc_c10,snw_pc_c11,snw_pc_c12,glc_cl_cmj,glc_pc_c01,glc_pc_c02,glc_pc_c03,glc_pc_c04,glc_pc_c05,glc_pc_c06,glc_pc_c07,glc_pc_c08,glc_pc_c09,glc_pc_c10,glc_pc_c11,glc_pc_c12,glc_pc_c13,glc_pc_c14,glc_pc_c15,glc_pc_c16,glc_pc_c17,glc_pc_c18,glc_pc_c19,glc_pc_c20,glc_pc_c21,glc_pc_c22,glc_pc_u01,glc_pc_u02,glc_pc_u03,glc_pc_u04,glc_pc_u05,glc_pc_u06,glc_pc_u07,glc_pc_u08,glc_pc_u09,glc_pc_u10,glc_pc_u11,glc_pc_u12,glc_pc_u13,glc_pc_u14,glc_pc_u15,glc_pc_u16,glc_pc_u17,glc_pc_u18,glc_pc_u19,glc_pc_u20,glc_pc_u21,glc_pc_u22,pnv_cl_cmj,pnv_pc_c01,pnv_pc_c02,pnv_pc_c03,pnv_pc_c04,pnv_pc_c05,pnv_pc_c06,pnv_pc_c07,pnv_pc_c08,pnv_pc_c09,pnv_pc_c10,pnv_pc_c11,pnv_pc_c12,pnv_pc_c13,pnv_pc_c14,pnv_pc_c15,pnv_pc_u01,pnv_pc_u02,pnv_pc_u03,pnv_pc_u04,pnv_pc_u05,pnv_pc_u06,pnv_pc_u07,pnv_pc_u08,pnv_pc_u09,pnv_pc_u10,pnv_pc_u11,pnv_pc_u12,pnv_pc_u13,pnv_pc_u14,pnv_pc_u15,wet_cl_cmj,wet_pc_cg1,wet_pc_ug1,wet_pc_cg2,wet_pc_ug2,wet_pc_c01,wet_pc_c02,wet_pc_c03,wet_pc_c04,wet_pc_c05,wet_pc_c06,wet_pc_c07,wet_pc_c08,wet_pc_c09,wet_pc_u01,wet_pc_u02,wet_pc_u03,wet_pc_u04,wet_pc_u05,wet_pc_u06,wet_pc_u07,wet_pc_u08,wet_pc_u09,for_pc_cse,for_pc_use,crp_pc_cse,crp_pc_use,pst_pc_cse,pst_pc_use,ire_pc_cse,ire_pc_use,gla_pc_cse,gla_pc_use,prm_pc_cse,prm_pc_use,pac_pc_cse,pac_pc_use,tbi_cl_cmj,tec_cl_cmj,fmh_cl_cmj,fec_cl_cmj,cly_pc_cav,cly_pc_uav,slt_pc_cav,slt_pc_uav,snd_pc_cav,snd_pc_uav,soc_th_cav,soc_th_uav,swc_pc_cyr,swc_pc_uyr,swc_pc_c01,swc_pc_c02,swc_pc_c03,swc_pc_c04,swc_pc_c05,swc_pc_c06,swc_pc_c07,swc_pc_c08,swc_pc_c09,swc_pc_c10,swc_pc_c11,swc_pc_c12,lit_cl_cmj,kar_pc_cse,kar_pc_use,ero_kh_cav,ero_kh_uav,pop_ct_csu,pop_ct_usu,ppd_pk_cav,ppd_pk_uav,urb_pc_cse,urb_pc_use,nli_ix_cav,nli_ix_uav,rdd_mk_cav,rdd_mk_uav,hft_ix_c93,hft_ix_u93,hft_ix_c09,hft_ix_u09,gad_id_cmj,gdp_ud_cav,gdp_ud_csu,gdp_ud_usu,hdi_ix_cav, b.iso_a2, ST_Intersection(a.shape, b.geom) shape FROM riveratlas_v10 a, ne_10m_admin_0_map_subunits b WHERE ST_Intersects(a.shape, b.geom) AND b.name = '${subunit}';"
+psql -d world -c "CREATE TABLE riveratlas_v10_${subunit} AS SELECT $(echo $(psql -qAtX -d world -c '\d riveratlas_v10' | grep -v "shape" | sed -e 's/^/a./g' -e 's/|.*//g' | paste -sd',')), b.iso_a2, ST_Intersection(a.shape, b.geom) shape FROM riveratlas_v10 a, ne_10m_admin_0_map_subunits b WHERE ST_Intersects(a.shape, b.geom) AND b.name = '${subunit}';"
 psql -d world -c "ALTER TABLE riveratlas_v10_${subunit} ADD COLUMN fid serial PRIMARY KEY;"
 psql -d world -c "CREATE INDEX riveratlas_v10_${subunit}_gid ON riveratlas_v10_${subunit} USING GIST (shape);"
 ```
@@ -938,6 +932,10 @@ Add useful columns
 ALTER TABLE ne_10m_populated_places ADD COLUMN localname text;
 UPDATE ne_10m_populated_places a SET localname = b.localname FROM geonames b WHERE a.geonamesid = b.geonameid;
 UPDATE ne_10m_populated_places a SET localname = b.localname FROM geonames b WHERE a.nameascii = b.asciiname AND a.iso_a2 = b.countrycode AND a.localname IS NULL;
+
+# continent from subunits
+ALTER TABLE ne_10m_populated_places ADD COLUMN continent text;
+UPDATE ne_10m_populated_places a SET continent = b.continent FROM ne_10m_admin_0_map_subunits b WHERE a.adm0_a3 = b.adm0_a3;
 ```
 
 Intersect subunits and contours
