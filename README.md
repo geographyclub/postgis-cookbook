@@ -546,7 +546,13 @@ CREATE TABLE worldatlas_extent_polygons AS SELECT longitude, latitude, x_min, x_
 Make grid
 
 ```
-# world extent
+# with ST_SquareGrid
+CREATE TABLE grid02 AS SELECT (ST_SquareGrid(0.2, ST_SetSRID(ST_Envelope('POLYGON((-180 -90, -180 90, 180 90, 180 -90, -180 -90))'::geometry), 4326))).geom::(POLYGON,4326) geom;
+# bonus: add raster stats
+ALTER TABLE grid02 ADD COLUMN dem_mean int; UPDATE grid02 a SET dem_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320 b WHERE ST_Intersects(b.rast, a.geom);
+ALTER TABLE grid02 ADD COLUMN aspect_mean int; UPDATE grid02 a SET aspect_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320_aspect b WHERE ST_Intersects(b.rast, a.geom);
+
+# with ST_PixelAsPolygons
 CREATE TABLE grid1 AS SELECT (ST_PixelAsPolygons(ST_AddBand(ST_MakeEmptyRaster(360,180,0,0,1,1,0,0,4326), '8BSI'::text, 1, 0), 1, false)).geom::geometry(Polygon,4326) AS geom;
 
 # select extent
@@ -875,6 +881,10 @@ psql -d world -c "ALTER TABLE riveratlas_v10_${subunit} ADD COLUMN fid serial PR
 psql -d world -c "CREATE INDEX riveratlas_v10_${subunit}_gid ON riveratlas_v10_${subunit} USING GIST (shape);"
 ```
 
+Clip dem by basin
+
+`gdalwarp -s_srs 'EPSG:4326' -t_srs 'EPSG:4326' -crop_to_cutline -cutline 'PG:dbname=world' -csql "SELECT shape FROM basinatlas_v10_lev01" topo15_4320_43200.tif topo15_4320_43200_lev01.tif`
+
 ### Koppen
 
 ```
@@ -940,13 +950,7 @@ UPDATE ne_10m_populated_places a SET continent = b.continent FROM ne_10m_admin_0
 
 Intersect subunits and contours
 
-```
-# get column names
-echo $(psql -qAtX -d world -c '\d ne_10m_admin_0_map_subunits' | grep -v "geom" | grep -v "fid" | sed -e 's/|.*//g')
-
-# intersection
-psql -d world -c "CREATE TABLE topo15_4320_1000m_polygon_subunits AS SELECT a.amin, a.amax, b.featurecla, b.scalerank, b.labelrank, b.sovereignt, b.sov_a3, b.adm0_dif, b.level, b.type, b.tlc, b.admin, b.adm0_a3, b.geou_dif, b.geounit, b.gu_a3, b.su_dif, b.subunit, b.su_a3, b.brk_diff, b.name, b.name_long, b.brk_a3, b.brk_name, b.brk_group, b.abbrev, b.postal, b.formal_en, b.formal_fr, b.name_ciawf, b.note_adm0, b.note_brk, b.name_sort, b.name_alt, b.mapcolor7, b.mapcolor8, b.mapcolor9, b.mapcolor13, b.pop_est, b.pop_rank, b.pop_year, b.gdp_md, b.gdp_year, b.economy, b.income_grp, b.fips_10, b.iso_a2, b.iso_a2_eh, b.iso_a3, b.iso_a3_eh, b.iso_n3, b.iso_n3_eh, b.un_a3, b.wb_a2, b.wb_a3, b.woe_id, b.woe_id_eh, b.woe_note, b.adm0_iso, b.adm0_diff, b.adm0_tlc, b.adm0_a3_us, b.adm0_a3_fr, b.adm0_a3_ru, b.adm0_a3_es, b.adm0_a3_cn, b.adm0_a3_tw, b.adm0_a3_in, b.adm0_a3_np, b.adm0_a3_pk, b.adm0_a3_de, b.adm0_a3_gb, b.adm0_a3_br, b.adm0_a3_il, b.adm0_a3_ps, b.adm0_a3_sa, b.adm0_a3_eg, b.adm0_a3_ma, b.adm0_a3_pt, b.adm0_a3_ar, b.adm0_a3_jp, b.adm0_a3_ko, b.adm0_a3_vn, b.adm0_a3_tr, b.adm0_a3_id, b.adm0_a3_pl, b.adm0_a3_gr, b.adm0_a3_it, b.adm0_a3_nl, b.adm0_a3_se, b.adm0_a3_bd, b.adm0_a3_ua, b.adm0_a3_un, b.adm0_a3_wb, b.continent, b.region_un, b.subregion, b.region_wb, b.name_len, b.long_len, b.abbrev_len, b.tiny, b.homepart, b.min_zoom, b.min_label, b.max_label, b.label_x, b.label_y, b.ne_id, b.wikidataid, b.name_ar, b.name_bn, b.name_de, b.name_en, b.name_es, b.name_fa, b.name_fr, b.name_el, b.name_he, b.name_hi, b.name_hu, b.name_id, b.name_it, b.name_ja, b.name_ko, b.name_nl, b.name_pl, b.name_pt, b.name_ru, b.name_sv, b.name_tr, b.name_uk, b.name_ur, b.name_vi, b.name_zh, b.name_zht, b.fclass_iso, b.tlc_diff, b.fclass_tlc, b.fclass_us, b.fclass_fr, b.fclass_ru, b.fclass_es, b.fclass_cn, b.fclass_tw, b.fclass_in, b.fclass_np, b.fclass_pk, b.fclass_de, b.fclass_gb, b.fclass_br, b.fclass_il, b.fclass_ps, b.fclass_sa, b.fclass_eg, b.fclass_ma, b.fclass_pt, b.fclass_ar, b.fclass_jp, b.fclass_ko, b.fclass_vn, b.fclass_tr, b.fclass_id, b.fclass_pl, b.fclass_gr, b.fclass_it, b.fclass_nl, b.fclass_se, b.fclass_bd, b.fclass_ua, (ST_Multi(ST_Intersection(ST_Buffer(a.geom,0), (ST_Buffer(b.geom,0)))))::geometry(MultiPolygon,4326) AS geom FROM topo15_4320_1000m_polygon a, ne_10m_admin_0_map_subunits b WHERE ST_Intersects(a.geom, b.geom);"
-```
+`psql -d world -c "CREATE TABLE topo15_4320_1000m_polygon_subunits AS SELECT $(echo $(psql -qAtX -d world -c '\d ne_10m_admin_0_map_subunits' | grep -v "shape" | sed -e 's/^/a./g' -e 's/|.*//g' | paste -sd',')), b.amin, b.amax, (ST_Multi(ST_Intersection(ST_Buffer(a.geom,0), (ST_Buffer(b.geom,0)))))::geometry(MultiPolygon,4326) AS geom FROM ne_10m_admin_0_map_subunits a, topo15_4320_1000m_polygon b WHERE ST_Intersects(a.geom, b.geom);"`
 
 ### OpenStreetMap
 
