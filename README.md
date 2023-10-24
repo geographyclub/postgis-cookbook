@@ -579,7 +579,7 @@ CREATE TABLE contour100m_poly AS SELECT fid, elev, (ST_Dump(ST_MakePolygon(geom)
 CREATE TABLE seoul_highway_polygons AS WITH b AS (SELECT ST_Multi(ST_Node(ST_Collect(wkb_geometry))) wkb_geometry FROM seoul_lines WHERE highway IN ('motorway','trunk','primary','secondary','tertiary','residential')) SELECT (ST_Dump(ST_Polygonize(wkb_geometry))).geom::GEOMETRY(POLYGON,3857) wkb_geometry FROM b;
 
 # lines to polygons (using extent)
-CREATE TABLE ${place}_extent_highways AS SELECT (ST_Dump(ST_CollectionExtract(ST_Split(a.wkb_geometry,b.wkb_geometry),3))).geom::GEOMETRY(POLYGON,3857) wkb_geometry FROM (SELECT ST_Extent(wkb_geometry)::GEOMETRY(POLYGON,3857) wkb_geometry FROM ${place}_lines) a, (SELECT (ST_Union(wkb_geometry))::GEOMETRY(MULTILINESTRING,3857) wkb_geometry FROM ${place}_lines WHERE highway IN ('motorway','trunk','primary','secondary','tertiary','residential')) b;
+CREATE TABLE thailand_highway_polygons AS SELECT (ST_Dump(ST_CollectionExtract(ST_Split(a.geom,b.geom),3))).geom::GEOMETRY(POLYGON,3857) geom FROM (SELECT ST_Extent(geom)::GEOMETRY(POLYGON,3857) geom FROM thailand_lines) a, (SELECT (ST_Union(geom))::GEOMETRY(MULTILINESTRING,3857) geom FROM thailand_lines WHERE highway IN ('motorway','trunk','primary','secondary','tertiary')) b;
 ```
 
 Line to geometry
@@ -823,27 +823,6 @@ for a in {01..12}; do
 done
 ```
 
-Basins to voronoi polygons
-
-```
-a=08
-psql -d world -c "DROP TABLE IF EXISTS basinatlas_v10_lev${a}_voronoi;"
-psql -d world -c "CREATE TABLE basinatlas_v10_lev${a}_voronoi AS SELECT * FROM basinatlas_v10_lev${a};"
-psql -d world -c "ALTER TABLE basinatlas_v10_lev${a}_voronoi ALTER COLUMN shape TYPE geometry;"
-psql -d world -c "UPDATE basinatlas_v10_lev${a}_voronoi SET shape = ST_Centroid(shape);"
-psql -d world -c "WITH a AS (SELECT (ST_Dump(ST_VoronoiPolygons(ST_Collect(shape)))).geom::GEOMETRY(POLYGON,4326) shape FROM basinatlas_v10_lev${a}_voronoi) UPDATE basinatlas_v10_lev${a}_voronoi b SET shape = a.shape FROM a WHERE ST_Intersects(a.shape,b.shape);"
-psql -d world -c "ALTER TABLE basinatlas_v10_lev${a}_voronoi ALTER COLUMN shape TYPE geometry(POLYGON,4326);"
-psql -d world -c "ALTER TABLE basinatlas_v10_lev${a}_voronoi ADD COLUMN fid serial PRIMARY KEY;"
-psql -d world -c "CREATE INDEX basinatlas_v10_lev${a}_voronoi_gid ON basinatlas_v10_lev${a}_voronoi USING GIST (shape);"
-
-# clip to lev01
-psql -d world -c CREATE TABLE basinatlas_v10_lev${a}_voronoi AS SELECT $(psql -qAtX -d world -c '\d basinatlas_v10_lev01' | grep -v "shape" | sed -e 's/^/a./g' -e 's/|.*//g' | paste -sd','), ST_Intersection(a.shape, b.shape) shape FROM basinatlas_v10_lev${a}_voronoi a, basinatlas_v10_lev01 b WHERE ST_Intersects(a.shape, b.shape);"
-
-# update raster stats
-psql -d world -c "UPDATE basinatlas_v10_lev${a}_voronoi a SET dem_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320 b WHERE ST_Intersects(b.rast, a.shape);"
-psql -d world -c "UPDATE basinatlas_v10_lev${a}_voronoi a SET aspect_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320_aspect b WHERE ST_Intersects(b.rast, a.shape);"
-```
-
 Rivers
 
 ```
@@ -880,6 +859,31 @@ psql -d world -c "CREATE TABLE riveratlas_v10_${subunit} AS SELECT $(echo $(psql
 psql -d world -c "ALTER TABLE riveratlas_v10_${subunit} ADD COLUMN fid serial PRIMARY KEY;"
 psql -d world -c "CREATE INDEX riveratlas_v10_${subunit}_gid ON riveratlas_v10_${subunit} USING GIST (shape);"
 ```
+
+Basins to voronoi polygons
+
+```
+a=08
+psql -d world -c "DROP TABLE IF EXISTS basinatlas_v10_lev${a}_voronoi;"
+psql -d world -c "CREATE TABLE basinatlas_v10_lev${a}_voronoi AS SELECT * FROM basinatlas_v10_lev${a};"
+psql -d world -c "ALTER TABLE basinatlas_v10_lev${a}_voronoi ALTER COLUMN shape TYPE geometry;"
+psql -d world -c "UPDATE basinatlas_v10_lev${a}_voronoi SET shape = ST_Centroid(shape);"
+psql -d world -c "WITH a AS (SELECT (ST_Dump(ST_VoronoiPolygons(ST_Collect(shape)))).geom::GEOMETRY(POLYGON,4326) shape FROM basinatlas_v10_lev${a}_voronoi) UPDATE basinatlas_v10_lev${a}_voronoi b SET shape = a.shape FROM a WHERE ST_Intersects(a.shape,b.shape);"
+psql -d world -c "ALTER TABLE basinatlas_v10_lev${a}_voronoi ALTER COLUMN shape TYPE geometry(POLYGON,4326);"
+psql -d world -c "ALTER TABLE basinatlas_v10_lev${a}_voronoi ADD COLUMN fid serial PRIMARY KEY;"
+psql -d world -c "CREATE INDEX basinatlas_v10_lev${a}_voronoi_gid ON basinatlas_v10_lev${a}_voronoi USING GIST (shape);"
+
+# clip to lev01
+psql -d world -c "CREATE TABLE basinatlas_v10_lev${a}_voronoi AS SELECT $(psql -qAtX -d world -c '\d basinatlas_v10_lev01' | grep -v "shape" | sed -e 's/^/a./g' -e 's/|.*//g' | paste -sd','), ST_Intersection(a.shape, b.shape) shape FROM basinatlas_v10_lev${a}_voronoi a, basinatlas_v10_lev01 b WHERE ST_Intersects(a.shape, b.shape);"
+
+# update raster stats
+psql -d world -c "UPDATE basinatlas_v10_lev${a}_voronoi a SET dem_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320 b WHERE ST_Intersects(b.rast, a.shape);"
+psql -d world -c "UPDATE basinatlas_v10_lev${a}_voronoi a SET aspect_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320_aspect b WHERE ST_Intersects(b.rast, a.shape);"
+```
+
+Intersect basins and hillshade
+
+`psql -d world -c "CREATE TABLE basinatlas_v10_lev08_voronoi_hillshade AS SELECT $(echo $(psql -qAtX -d world -c '\d basinatlas_v10_lev08_voronoi' | grep -v "shape" | sed -e 's/^/a./g' -e 's/|.*//g' | paste -sd',')), ST_Intersection(a.shape, b.geom) shape FROM basinatlas_v10_lev08_voronoi a, topo15_004_0004_hillshade b WHERE ST_Intersects(a.shape, b.geom)"`
 
 Clip dem by basin
 
@@ -997,6 +1001,18 @@ SELECT name, other_tags FROM bangkok_points WHERE other_tags LIKE '%"public_tran
 
 # create table of subways stations
 CREATE TABLE bangkok_subway_stations AS SELECT * FROM bangkok_points WHERE other_tags LIKE '%station"=>"subway"%';
+```
+
+Extract by polygon
+
+```
+# phuket points
+CREATE TABLE phuket_points AS SELECT a.id, a.osm_id, a.name, a.barrier, a.highway, a.ref, a.address, a.is_in, a.place, a.man_made, a.other_tags, ST_Intersection(a.geom, b.geom) geom FROM thailand_points a, thailand_polygons b WHERE b.other_tags LIKE '%Ko Phuket%' AND ST_Intersects(a.geom, b.geom);
+# phuket lines
+CREATE TABLE phuket_lines AS SELECT a.id, a.osm_id, a.name, a.highway, a.waterway, a.aerialway, a.barrier, a.man_made, a.railway, a.z_order, a.other_tags, ST_Intersection(a.geom, b.geom) geom FROM thailand_lines a, thailand_polygons b WHERE b.other_tags LIKE '%Ko Phuket%' AND ST_Intersects(a.geom, b.geom);
+# phuket polygons
+CREATE TABLE phuket_polygons AS WITH b AS (SELECT geom FROM thailand_polygons WHERE other_tags LIKE '%Ko Phuket%') SELECT a.id, a.osm_id, a.osm_way_id, a.name, a.type, a.aeroway, a.amenity, a.admin_level, a.barrier, a.boundary, a.building, a.craft, a.geological, a.historic, a.land_area, a.landuse, a.leisure, a.man_made, a.military, a.natural, a.office, a.place, a.shop, a.sport, a.tourism, a.other_tags, ST_Intersection(a.geom, b.geom) geom FROM thailand_polygons a, b WHERE ST_Intersects(a.geom, b.geom);
+
 ```
 
 Batch processing from shell
