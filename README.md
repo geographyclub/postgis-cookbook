@@ -93,7 +93,7 @@ Copy table to table
 Export table to svg files
 
 ```
-table='ne_10m_admin_0_countries_3857'
+table='ne_10m_admin_0_countries'
 psql -d world -c "COPY (SELECT REPLACE(REPLACE(name, ' ', '_'), '.', ''), ST_XMin(geom), (-1 * ST_YMax(geom)), (ST_XMax(geom) - ST_XMin(geom)), (ST_YMax(geom) - ST_YMin(geom)), ST_AsSVG(geom, 1) FROM ${table}) TO STDOUT DELIMITER E'\t'" | while IFS=$'\t' read -a array; do
   echo '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" height="512" width="512" viewBox="'${array[1]}' '${array[2]}' '${array[3]}' '${array[4]}'"><path d="'${array[5]}'" vector-effect="non-scaling-stroke" fill="#FFF" stroke="#000" stroke-width="0.1em" stroke-linejoin="round" stroke-linecap="round"/></svg>' > ${array[0]}.svg
 done
@@ -244,7 +244,7 @@ Distinct select
 
 `SELECT DISTINCT ON (taxonid) taxonid, vernacularname FROM gbif_vernacular WHERE language IN ('en') ORDER BY taxonid, vernacularname;`
 
-Select
+Create table from select
 
 `CREATE TABLE bangkok_toronto_points_neighbourhoods AS SELECT * FROM bangkok_toronto_points WHERE place IN ('neighbourhood');`
 
@@ -289,6 +289,10 @@ Aggregate
 Select many columns without geom
 
 `$(echo $(psql -qAtX -d world -c '\d basinatlas_v10_lev01' | grep -v "shape" | sed -e 's/^/a./g' -e 's/|.*//g' | paste -sd','))`
+
+Print in column format
+
+`psql -x -d us -c "SELECT * FROM ne_10m_admin_1_states_provinces_lakes WHERE name = 'Alabama';"`
 
 ## Spatial operations
 
@@ -467,7 +471,7 @@ CREATE TABLE places_label_italy AS SELECT STRING_AGG(name, ',' ORDER BY ST_X(geo
 UPDATE grid02 a SET places = (SELECT string_agg(b.name, ',' ORDER BY b.scalerank) FROM places b WHERE ST_Intersects(a.geom, b.geom));
 ```
 
-Find Nearest neighbor
+Find nearest neighbor
 
 ```
 UPDATE gebco_contour1 a SET geom = (SELECT b.geom FROM contour10m_segment1 b WHERE ST_DWithin(a.geom,b.geom,1) ORDER BY a.geom <-> b.geom LIMIT 1);
@@ -1012,7 +1016,6 @@ CREATE TABLE phuket_points AS SELECT a.id, a.osm_id, a.name, a.barrier, a.highwa
 CREATE TABLE phuket_lines AS SELECT a.id, a.osm_id, a.name, a.highway, a.waterway, a.aerialway, a.barrier, a.man_made, a.railway, a.z_order, a.other_tags, ST_Intersection(a.geom, b.geom) geom FROM thailand_lines a, thailand_polygons b WHERE b.other_tags LIKE '%Ko Phuket%' AND ST_Intersects(a.geom, b.geom);
 # phuket polygons
 CREATE TABLE phuket_polygons AS WITH b AS (SELECT geom FROM thailand_polygons WHERE other_tags LIKE '%Ko Phuket%') SELECT a.id, a.osm_id, a.osm_way_id, a.name, a.type, a.aeroway, a.amenity, a.admin_level, a.barrier, a.boundary, a.building, a.craft, a.geological, a.historic, a.land_area, a.landuse, a.leisure, a.man_made, a.military, a.natural, a.office, a.place, a.shop, a.sport, a.tourism, a.other_tags, ST_Intersection(a.geom, b.geom) geom FROM thailand_polygons a, b WHERE ST_Intersects(a.geom, b.geom);
-
 ```
 
 Batch processing from shell
