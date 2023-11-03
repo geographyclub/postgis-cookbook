@@ -2,7 +2,7 @@
 
 Useful commands for working with spatial data in psql and bash.
 
-<img src="img/ne_110m_admin_0_countries.svg"/>
+<img src="img/ne_110m_admin_0_countries.png"/>
 
 ## TABLE OF CONTENTS
 
