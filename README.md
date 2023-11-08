@@ -537,26 +537,23 @@ Text as polygons (using width_bucket to scale letters)
 
 ### GBIF
 
-Import vernacularname
-
-```
+Import vernacularname  
+```bash
 CREATE TABLE vernacularname(taxonid int, vernacularname varchar, language varchar, country varchar, countryCode varchar, sex varchar, lifestage varchar, source varchar);
 COPY vernacularname FROM 'VernacularName.tsv' DELIMITER E'\t' CSV HEADER;
 CREATE TABLE vernacularname_agg AS SELECT taxonid,string_agg(vernacularname,';') FROM vernacularname GROUP BY taxonid;
 ```
 
-Import distribution
-
-```
+Import distribution  
+```bash
 sed -i 's/"//g' Distribution.tsv
 CREATE TABLE distribution(
 taxonid int, locationid text, locality text, country text, countrycode text, locationremarks text, establishmentmeans text, lifestage text, occurrencestatus text, threatstatus text, source text);
 COPY distribution FROM 'Distribution.tsv' DELIMITER E'\t' CSV HEADER;
 ```
 
-Import dataset
-
-```
+Import dataset  
+```bash
 sed -i '1 s/order/ordername/' ibol.csv
 CREATE TABLE ibol(gbifid bigint, datasetkey text, occurrenceid text, kingdom text, phylum text, class text, ordername text, family text, genus text, species text, infraspecificepithet text, taxonrank text, scientificname text, countrycode text, locality text, publishingorgkey text, decimallatitude float8, decimallongitude float8, coordinateuncertaintyinmeters float8, coordinateprecision float8, elevation float8, elevationaccuracy float8, depth float8, depthaccuracy float8, eventdate date, day int, month int, year int, taxonkey int, specieskey int, basisofrecord text, institutioncode text, collectioncode text, catalognumber text, recordnumber text, identifiedby text, dateidentified text, license text, rightsholder text, recordedby text, typestatus text, establishmentmeans text, lastinterpreted text, mediatype text, issue text);
 COPY ibol FROM 'ibol.csv' DELIMITER E'\t' CSV HEADER;
@@ -571,25 +568,22 @@ ALTER TABLE ibol ADD COLUMN vernacularname text;
 UPDATE ibol a SET vernacularname = b.string_agg FROM vernacularname_agg b WHERE b.taxonid = a.taxonkey;
 ```
 
-Export gbif as labels on contours
-
-```
+Export gbif as labels on contours  
+```bash
 extent="-123,41,-111,51"
 ogr2ogr -overwrite -f "SQLite" -dsco SPATIALITE=YES -sql "SELECT a.vname_en, a.datasetkey, a.kingdom, a.phylum, a.class, a.order, a.family, a.genus, a.species, a.scientificname, (SELECT b.geom FROM contour10m_seg1_5 AS b ORDER BY b.geom <-> ST_GeometryN(ST_Collect(a.geom),1) LIMIT 1) FROM nmnh AS a WHERE a.geom && ST_MakeEnvelope(${extent}) GROUP BY a.vname_en, a.datasetkey, a.kingdom, a.phylum, a.class, a.order, a.family, a.genus, a.species, a.scientificname" gbif_extract.sqlite -nln gbif -nlt LINESTRING PG:"dbname=contours"
 ```
 
-Export gbif one-to-many points
-
-```
+Export gbif one-to-many points  
+```bash
 extent="-123,41,-111,51"
 ogr2ogr -overwrite -f "SQLite" -dsco SPATIALITE=YES -sql "SELECT a.geom, a.vname_en, a.datasetkey, a.kingdom, a.phylum, a.class, a.order, a.family, a.genus, a.species, a.scientificname, (SELECT CAST(b.fid AS int) AS contourid FROM contour10m_seg1_5 AS b ORDER BY b.geom <-> a.geom LIMIT 1) FROM nmnh AS a WHERE a.geom && ST_MakeEnvelope(${extent})" gbif_extract.sqlite -nln gbif -nlt POINT PG:"dbname=contours"
 ```
 
 ### Geonames
 
-Import
-
-```
+Import  
+```bash
 # format csv
 cat allCountries.txt | tr '"' "'" > allCountries.csv
 
@@ -626,9 +620,8 @@ COPY languagecodes FROM 'iso-languagecodes.txt' DELIMITER E'\t' CSV HEADER;
 UPDATE geonames a SET localname = c.alternatename FROM countryinfo b, alternatenames c WHERE a.countrycode = b.iso AND a.geonameid = c.geonameid AND regexp_replace(regexp_replace(b.languages, '\-.*$', ''),',.*$','') = c.isolanguage;
 ```
 
-Top 3 languages into array
-
-```
+Top 3 languages into array  
+```bash
 ALTER TABLE countryinfo ADD COLUMN languagenames text array;
 UPDATE countryinfo a SET languagenames[1] = regexp_replace(regexp_replace(b.languagename, ' \(.*\)', ''), 'Modern ', '') FROM languagecodes b WHERE SPLIT_PART(regexp_replace(a.languages, '-'||a.iso, '', 'g'), ',', 1) = b.iso_639_1 OR SPLIT_PART(a.languages, ',', 1) = b.iso_639_3;
 UPDATE countryinfo a SET languagenames[2] = regexp_replace(regexp_replace(b.languagename, ' \(.*\)', ''), 'Modern ', '') FROM languagecodes b WHERE SPLIT_PART(regexp_replace(a.languages, '-'||a.iso, '', 'g'), ',', 2) = b.iso_639_1 OR SPLIT_PART(a.languages, ',', 2) = b.iso_639_3;
@@ -639,9 +632,8 @@ UPDATE countryinfo a SET languagenames[3] = regexp_replace(regexp_replace(b.lang
 #echo $(psql -d world -c "\COPY (SELECT DISTINCT(iso_639_1) FROM places) TO STDOUT;") | tr ' ' '\n' | while read lang; do echo 'UPDATE places SET localname = name_'${lang} WHERE iso_639_1 = ${lang}; done
 ```
 
-List & order places in extent
-
-```
+List & order places in extent  
+```bash
 # alphabetical
 psql -d world -c "WITH b AS (SELECT b.longitude, b.latitude, array_agg(a.name ORDER BY b.page, a.name) places FROM ne_10m_populated_places_3857 a, worldatlas_pages_3857 b, worldatlas_extents c WHERE a.scalerank IN (0,1,2,3,4) AND b.page IS NOT NULL AND b.longitude = c.longitude AND b.latitude = c.latitude AND ST_Intersects(a.geom, ST_MakeEnvelope(c.x_min,c.y_min,c.x_max,c.y_max,3857)) GROUP BY b.page, b.longitude, b.latitude) UPDATE worldatlas_pages_3857 a SET places = b.places FROM b WHERE a.longitude = b.longitude AND a.latitude = b.latitude;"
 
@@ -653,9 +645,8 @@ psql -d world -c "alter table worldatlas_pages_3857 add column geonames_mt text;
 psql -d world -c "WITH b AS (SELECT b.longitude, b.latitude, array_agg(a.name || ' ' || coalesce(a.elevation,a.dem) || 'm (' || CASE WHEN a.lon < 0 THEN round(a.lon::numeric,1)*-1 || 'W' ELSE round(a.lon::numeric,1) || 'E' END || '/' || CASE WHEN a.lat < 0 THEN round(a.lat::numeric,1)*-1 || 'S' ELSE round(a.lat::numeric,1) || 'N' END || ')' ORDER BY a.dem DESC) mts FROM geonames_mt_3857 a, worldatlas_pages_3857 b, worldatlas_extents c WHERE b.page IS NOT NULL AND b.longitude = c.longitude AND b.latitude = c.latitude AND ST_Intersects(a.geom, ST_MakeEnvelope(c.x_min,c.y_min,c.x_max,c.y_max,3857)) GROUP BY b.page, b.longitude, b.latitude) UPDATE worldatlas_pages_3857 a SET geonames_mt = b.mts FROM b WHERE a.longitude = b.longitude AND a.latitude = b.latitude;"
 ```
 
-Rank places with rank() or row_number()
-
-```
+Rank places with rank() or row_number()  
+```bash
 # by place
 ALTER TABLE geonames ADD COLUMN pop_rank int; WITH b AS (SELECT fid, RANK() OVER (PARTITION BY countrycode ORDER BY population DESC) pop_rank FROM geonames WHERE featurecode LIKE 'PPL%' AND name NOT IN ('Brooklyn','Queens','Manhattan','The Bronx')) UPDATE geonames a SET pop_rank = b.pop_rank FROM b WHERE a.fid = b.fid;
 ALTER TABLE geonames ADD COLUMN mt_rank int; WITH b AS (SELECT fid, RANK() OVER (PARTITION BY countrycode ORDER BY dem DESC) mt_rank FROM geonames WHERE featurecode = 'MT') UPDATE geonames a SET mt_rank = b.mt_rank FROM b WHERE a.fid = b.fid;
@@ -665,17 +656,15 @@ psql -d world -c "ALTER TABLE geonames_mt_3857 ADD COLUMN rank int;"
 psql -d world -c "WITH b AS (SELECT b.fid, ROW_NUMBER () OVER (PARTITION BY CONCAT(c.longitude::text, c.latitude::text) ORDER BY b.dem DESC) rank FROM worldatlas_pages_3857 a, geonames_mt_3857 b, worldatlas_extents c WHERE a.page IS NOT NULL AND a.longitude = c.longitude AND a.latitude = c.latitude AND ST_Intersects(b.geom, ST_MakeEnvelope(c.x_min,c.y_min,c.x_max,c.y_max,3857))) UPDATE geonames_mt_3857 a SET rank = b.rank FROM b WHERE a.fid = b.fid;"
 ```
 
-Aggregate pop rank, mt rank
-
-```
+Aggregate pop rank, mt rank  
+```bash
 CREATE TABLE geonames_pop_rank AS SELECT countrycode, STRING_AGG(CONCAT(name, '.....', TO_CHAR(population::int, 'FM9,999,999,999')), ';' ORDER BY population DESC) pop_ranks FROM geonames WHERE pop_rank <= 5 GROUP BY countrycode;
 CREATE TABLE geonames_mt_rank AS SELECT countrycode, STRING_AGG(CONCAT(name, '.....', TO_CHAR(coalesce(elevation, dem)::int, 'FM9,999,999,999'), 'm'), ';' ORDER BY dem DESC) mt_ranks FROM geonames WHERE mt_rank <= 3 GROUP BY countrycode;
 CREATE TABLE geonames_top_rank AS SELECT * FROM geonames WHERE pop_rank <=5 OR mt_rank <= 3 OR featurecode IN ('PPLC');
 ```
 
-Add useful columns
-
-```
+Add useful columns  
+```bash
 # scalerank from natural earth
 ALTER TABLE geonames ADD COLUMN scalerank INT;
 UPDATE geonames a SET scalerank = b.scalerank FROM ne_10m_populated_places b WHERE a.geonameid = b.geonamesid;
@@ -685,32 +674,28 @@ ALTER TABLE geonames ADD COLUMN aspect_lev06 INT;
 UPDATE geonames a SET aspect_lev06 = b.aspect_mean FROM basinatlas_v10_lev06 b WHERE ST_Intersects(a.geom,b.shape);
 ```
 
-Filter
-
-```
+Filter  
+```bash
 # by countrycode
 CREATE TABLE geonames_th AS SELECT * FROM geonames WHERE countrycode = 'TH';
 ```
 
-Export
-
-```
+Export  
+```bash
 # nearest contour line
 ogr2ogr -overwrite -update -f "SQLite" -sql "SELECT a.featurecode_name, a.featureclass, (SELECT b.geom FROM contour10m_segments1_5 AS b ORDER BY b.geom <-> ST_GeometryN(ST_Collect(a.geom),1) LIMIT 1) FROM allcountries AS a WHERE a.geom && ST_MakeEnvelope(-123,41,-111,51) AND a.featureclass IN ('T','H','U','V') GROUP BY a.featurecode_name, a.featureclass" export.sqlite -nln geonames -nlt LINESTRING PG:"dbname=topo15
 ```
 
 ### GHCN
 
-Prep files
-
-```
+Prep files  
+```bash
 ./ghcn2csv-converter.py -f daily -i ghcnd_gsn.dly -o ghcnd_gsn.csv
 cat ghcnd-stations.txt | awk -v OFS='\t' '{print substr($0,1,12), substr($0,13,8), substr($0,22,9), substr($0,32,6), substr($0,39,2), substr($0,42,30), substr($0,73,3), substr($0,77,3), substr($0,81,5)}' | sed 's/ *\t */\t/g' > ghcnd-stations.csv
 ```
 
-Create table
-
-```
+Create table  
+```bash
 # import data
 CREATE TABLE ghcn(id varchar,year integer,month integer,element varchar,value1 Integer,mflag1 varchar,qflag1 varchar,sflag1 varchar,value2 integer,mflag2 varchar,qflag2 varchar,sflag2 varchar,value3 integer,mflag3 varchar,qflag3 varchar,sflag3 varchar,value4 integer,mflag4 varchar,qflag4 varchar,sflag4 varchar,value5 integer,mflag5 varchar,qflag5 varchar,sflag5 varchar,value6 integer,mflag6 varchar,qflag6 varchar,sflag6 varchar,value7 integer,mflag7 varchar,qflag7 varchar,sflag7 varchar,value8 integer,mflag8 varchar,qflag8 varchar,sflag8 varchar,value9 integer,mflag9 varchar,qflag9 varchar,sflag9 varchar,value10 integer,mflag10 varchar,qflag10 varchar,sflag10 varchar,value11 integer,mflag11 varchar,qflag11 varchar,sflag11 varchar,value12 integer,mflag12 varchar,qflag12 varchar,sflag12 varchar,value13 integer,mflag13 varchar,qflag13 varchar,sflag13 varchar,value14 integer,mflag14 varchar,qflag14 varchar,sflag14 varchar,value15 integer,mflag15 varchar,qflag15 varchar,sflag15 varchar,value16 integer,mflag16 varchar,qflag16 varchar,sflag16 varchar,value17 integer,mflag17 varchar,qflag17 varchar,sflag17 varchar,value18 integer,mflag18 varchar,qflag18 varchar,sflag18 varchar,value19 integer,mflag19 varchar,qflag19 varchar,sflag19 varchar,value20 integer,mflag20 varchar,qflag20 varchar,sflag20 varchar,value21 integer,mflag21 varchar,qflag21 varchar,sflag21 varchar,value22 integer,mflag22 varchar,qflag22 varchar,sflag22 varchar,value23 integer,mflag23 varchar,qflag23 varchar,sflag23 varchar,value24 integer,mflag24 varchar,qflag24 varchar,sflag24 varchar,value25 integer,mflag25 varchar,qflag25 varchar,sflag25 varchar,value26 integer,mflag26 varchar,qflag26 varchar,sflag26 varchar,value27 integer,mflag27 varchar,qflag27 varchar,sflag27 varchar,value28 integer,mflag28 varchar,qflag28 varchar,sflag28 varchar,value29 integer,mflag29 varchar,qflag29 varchar,sflag29 varchar,value30 integer,mflag30 varchar,qflag30 varchar,sflag30 varchar,value31 integer,mflag31 varchar,qflag31 varchar,sflag31 varchar);
 COPY ghcn FROM 'ghcnd_gsn.csv' DELIMITER ',' CSV HEADER;
@@ -734,17 +719,15 @@ CREATE INDEX ghcn_gid ON ghcn USING GIST (geom);
 
 ### Hydroatlas
 
-Import hydroatlas
-
-```
+Import hydroatlas  
+```bash
 # import
 ogr2ogr -f PostgreSQL PG:dbname=world RiverATLAS_v10.gdb RiverATLAS_v10
 ogr2ogr -f PostgreSQL PG:dbname=world -nlt PROMOTE_TO_MULTI BasinATLAS_v10.gdb
 ```
 
-Add dem, aspect to basins
-
-```
+Add dem, aspect to basins  
+```bash
 # import rasters
 raster2pgsql -d -s 4326 -I -C -M -F -t 1x1 topo15_4320.tif topo15_4320 | psql -d world
 raster2pgsql -d -s 4326 -I -C -M -F -t 1x1 topo15_4320_aspect.tif topo15_4320_aspect | psql -d world
@@ -756,8 +739,7 @@ for a in {01..12}; do
 done
 ```
 
-Rivers
-
+Rivers  
 ```
 # simplify
 psql -d world -c "CREATE TABLE riveratlas_v10_simple1 AS SELECT upland_skm, (ST_SimplifyVW(shape,1))::GEOMETRY(MultiLineString,4326) shape FROM riveratlas_v10;"
@@ -780,9 +762,8 @@ psql -d world -c "CREATE TABLE riveratlas_v10_dissolve AS SELECT (ST_Dump(ST_Uni
 psql -d world -c "CREATE TABLE riveratlas_v10_dissolve AS SELECT (ST_Dump(ST_Union(Shape))).geom::GEOMETRY(LINESTRING,4326) geom FROM riveratlas_v10 GROUP BY tec_cl_cmj;"
 ```
 
-Intersect rivers and subunit
-
-```
+Intersect rivers and subunit  
+```bash
 # list columns
 echo $(psql -qAtX -d world -c '\d riveratlas_v10' | grep -v "shape" | sed -e 's/|.*//g' | paste -sd',')
 
@@ -793,9 +774,8 @@ psql -d world -c "ALTER TABLE riveratlas_v10_${subunit} ADD COLUMN fid serial PR
 psql -d world -c "CREATE INDEX riveratlas_v10_${subunit}_gid ON riveratlas_v10_${subunit} USING GIST (shape);"
 ```
 
-Basins to voronoi polygons
-
-```
+Basins to voronoi polygons  
+```bash
 a=08
 psql -d world -c "DROP TABLE IF EXISTS basinatlas_v10_lev${a}_voronoi;"
 psql -d world -c "CREATE TABLE basinatlas_v10_lev${a}_voronoi AS SELECT * FROM basinatlas_v10_lev${a};"
@@ -814,12 +794,10 @@ psql -d world -c "UPDATE basinatlas_v10_lev${a}_voronoi a SET dem_mean = (ST_Sum
 psql -d world -c "UPDATE basinatlas_v10_lev${a}_voronoi a SET aspect_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320_aspect b WHERE ST_Intersects(b.rast, a.shape);"
 ```
 
-Intersect basins and hillshade
-
+Intersect basins and hillshade  
 `psql -d world -c "CREATE TABLE basinatlas_v10_lev08_voronoi_hillshade AS SELECT $(echo $(psql -qAtX -d world -c '\d basinatlas_v10_lev08_voronoi' | grep -v "shape" | sed -e 's/^/a./g' -e 's/|.*//g' | paste -sd',')), ST_Intersection(a.shape, b.geom) shape FROM basinatlas_v10_lev08_voronoi a, topo15_004_0004_hillshade b WHERE ST_Intersects(a.shape, b.geom)"`
 
-Clip dem by basin
-
+Clip dem by basin  
 `gdalwarp -s_srs 'EPSG:4326' -t_srs 'EPSG:4326' -crop_to_cutline -cutline 'PG:dbname=world' -csql "SELECT shape FROM basinatlas_v10_lev01" topo15_4320_43200.tif topo15_4320_43200_lev01.tif`
 
 ### Koppen
@@ -872,9 +850,8 @@ UPDATE koppen a SET name = b.name FROM koppen_name b WHERE a.gridcode = b.gridco
 
 ### Natural Earth
 
-Add useful columns
-
-```
+Add useful columns  
+```bash
 # localname from geonames
 ALTER TABLE ne_10m_populated_places ADD COLUMN localname text;
 UPDATE ne_10m_populated_places a SET localname = b.localname FROM geonames b WHERE a.geonamesid = b.geonameid;
@@ -885,15 +862,13 @@ ALTER TABLE ne_10m_populated_places ADD COLUMN continent text;
 UPDATE ne_10m_populated_places a SET continent = b.continent FROM ne_10m_admin_0_map_subunits b WHERE a.adm0_a3 = b.adm0_a3;
 ```
 
-Intersect subunits and contours
-
+Intersect subunits and contours  
 `psql -d world -c "CREATE TABLE topo15_4320_1000m_polygon_subunits AS SELECT $(echo $(psql -qAtX -d world -c '\d ne_10m_admin_0_map_subunits' | grep -v "shape" | sed -e 's/^/a./g' -e 's/|.*//g' | paste -sd',')), b.amin, b.amax, (ST_Multi(ST_Intersection(ST_Buffer(a.geom,0), (ST_Buffer(b.geom,0)))))::geometry(MultiPolygon,4326) AS geom FROM ne_10m_admin_0_map_subunits a, topo15_4320_1000m_polygon b WHERE ST_Intersects(a.geom, b.geom);"`
 
 ### OpenStreetMap
 
-Import points, lines, multilines & polygons from shell
-
-```
+Import points, lines, multilines & polygons from shell  
+```bash
 # for hstore: -lco COLUMN_TYPES=other_tags=hstore
 osmfile=Johannesburg.osm.pbf
 ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nln ${osmfile%.osm.pbf}_points PG:dbname=osm ${osmfile} points
@@ -902,20 +877,17 @@ ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nlt promote_to_multi -nln $
 ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nlt promote_to_multi -nln ${osmfile%.osm.pbf}_polygons PG:dbname=osm ${osmfile} multipolygons
 ```
 
-Use ST_IsValid for broken polygons
-
+Use ST_IsValid for broken polygons  
 `SELECT ST_Buffer(wkb_geometry,0) wkb_geometry FROM bangkok_polygons WHERE building IS NOT NULL AND ST_IsValid(wkb_geometry)`
 
-Working with other_tags
-
-```
+Working with other_tags  
+```bash
 # list other_tags
 SELECT DISTINCT other_tags FROM bangkok_polygons WHERE other_tags IS NOT NULL ORDER BY other_tags;
 ```
 
-Highways
-
-```
+Highways  
+```bash
 # dissolve highways by name
 CREATE TABLE bangkok_highway_dissolve AS SELECT name, highway, ST_Union(wkb_geometry) wkb_geometry FROM bangkok_lines GROUP BY name, highway; 
 
@@ -926,9 +898,8 @@ SELECT ST_Union(ST_Intersection(a.wkb_geometry,b.wkb_geometry)) wkb_geometry FRO
 CREATE TABLE bangkok_highway_buffer5 AS SELECT highway, (ST_Dump(ST_Union(ST_Buffer(wkb_geometry,5)))).geom::GEOMETRY(POLYGON,3857) wkb_geometry FROM bangkok_lines GROUP BY highway;
 ```
 
-Public transportation
-
-```
+Public transportation  
+```bash
 # select all public transport stations
 SELECT name, other_tags FROM bangkok_points WHERE other_tags LIKE '%"public_transport"=>"station"%';
 
@@ -936,9 +907,8 @@ SELECT name, other_tags FROM bangkok_points WHERE other_tags LIKE '%"public_tran
 CREATE TABLE bangkok_subway_stations AS SELECT * FROM bangkok_points WHERE other_tags LIKE '%station"=>"subway"%';
 ```
 
-Extract by polygon
-
-```
+Extract by polygon  
+```bash
 # phuket points
 CREATE TABLE phuket_points AS SELECT a.id, a.osm_id, a.name, a.barrier, a.highway, a.ref, a.address, a.is_in, a.place, a.man_made, a.other_tags, ST_Intersection(a.geom, b.geom) geom FROM thailand_points a, thailand_polygons b WHERE b.other_tags LIKE '%Ko Phuket%' AND ST_Intersects(a.geom, b.geom);
 # phuket lines
@@ -947,9 +917,8 @@ CREATE TABLE phuket_lines AS SELECT a.id, a.osm_id, a.name, a.highway, a.waterwa
 CREATE TABLE phuket_polygons AS WITH b AS (SELECT geom FROM thailand_polygons WHERE other_tags LIKE '%Ko Phuket%') SELECT a.id, a.osm_id, a.osm_way_id, a.name, a.type, a.aeroway, a.amenity, a.admin_level, a.barrier, a.boundary, a.building, a.craft, a.geological, a.historic, a.land_area, a.landuse, a.leisure, a.man_made, a.military, a.natural, a.office, a.place, a.shop, a.sport, a.tourism, a.other_tags, ST_Intersection(a.geom, b.geom) geom FROM thailand_polygons a, b WHERE ST_Intersects(a.geom, b.geom);
 ```
 
-Batch processing from shell
-
-```
+Batch processing from shell  
+```bash
 place=thailand
 # highway to polygon
 psql -d osm -c "DROP TABLE IF EXISTS ${place}_highway_polygons; CREATE TABLE ${place}_highway_polygons AS SELECT (ST_Dump(ST_CollectionExtract(ST_Split(a.wkb_geometry,b.wkb_geometry),3))).geom::GEOMETRY(POLYGON,3857) wkb_geometry FROM (SELECT ST_Extent(wkb_geometry)::GEOMETRY(POLYGON,3857) wkb_geometry FROM ${place}_lines) a, (SELECT (ST_Union(wkb_geometry))::GEOMETRY(MULTILINESTRING,3857) wkb_geometry FROM ${place}_lines WHERE highway IN ('motorway','trunk','primary','secondary','tertiary','residential')) b;"
@@ -964,4 +933,27 @@ psql -d osm -c "ALTER TABLE ${place}_highway_polygons ADD COLUMN \"natural\" tex
 # count amenties by neighborhood
 psql -d osm -c "ALTER TABLE ${place}_polygons ADD COLUMN amenity_count int;"
 psql -d osm -c "WITH stats AS (SELECT a.osm_id, count(b.other_tags LIKE '%amenity%') count FROM ${place}_polygons a, ${place}_points b WHERE a.admin_level IS NOT NULL AND b.other_tags LIKE '%amenity%' AND ST_Intersects(a.wkb_geometry, b.wkb_geometry) GROUP BY a.osm_id) UPDATE ${place}_polygons a SET amenity_count = stats.count FROM stats WHERE a.osm_id = stats.osm_id;"
+```
+
+### WWF Ecoregions
+
+Insert biome names
+```bash
+ALTER TABLE wwf_terr_ecos ADD COLUMN biome_name text;
+UPDATE wwf_terr_ecos SET biome_name = CASE WHEN "biome" = 1 THEN 'Tropical & Subtropical Moist Broadleaf Forests'
+  WHEN "biome" = 2 THEN 'Tropical & Subtropical Dry Broadleaf Forests'
+  WHEN "biome" = 3 THEN 'Tropical & Subtropical Coniferous Forests'
+  WHEN "biome" = 4 THEN 'Temperate Broadleaf & Mixed Forests'
+  WHEN "biome" = 5 THEN 'Temperate Conifer Forests'
+  WHEN "biome" = 6 THEN 'Boreal Forests/Taiga'
+  WHEN "biome" = 7 THEN 'Tropical & Subtropical Grasslands, Savannas & Shrublands'
+  WHEN "biome" = 8 THEN 'Temperate Grasslands, Savannas & Shrublands'
+  WHEN "biome" = 9 THEN 'Flooded Grasslands & Savannas'
+  WHEN "biome" = 10 THEN 'Montane Grasslands & Shrublands'
+  WHEN "biome" = 11 THEN 'Tundra'
+  WHEN "biome" = 12 THEN 'Mediterranean Forests, Woodlands & Scrub'
+  WHEN "biome" = 13 THEN 'Deserts & Xeric Shrublands'
+  WHEN "biome" = 14 THEN 'Mangroves'
+  ELSE ''
+END;
 ```
