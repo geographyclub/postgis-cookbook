@@ -2,8 +2,6 @@
 
 Useful commands for working with spatial data in psql and bash.
 
-<img src="img/ne_110m_admin_0_countries.png"/>
-
 ## TABLE OF CONTENTS
 
 1. [Starting out](#starting-out)  
@@ -850,7 +848,7 @@ UPDATE koppen a SET name = b.name FROM koppen_name b WHERE a.gridcode = b.gridco
 
 ### Natural Earth
 
-Add useful columns  
+Add & update useful columns  
 ```bash
 # localname from geonames
 ALTER TABLE ne_10m_populated_places ADD COLUMN localname text;
@@ -860,6 +858,9 @@ UPDATE ne_10m_populated_places a SET localname = b.localname FROM geonames b WHE
 # continent from subunits
 ALTER TABLE ne_10m_populated_places ADD COLUMN continent text;
 UPDATE ne_10m_populated_places a SET continent = b.continent FROM ne_10m_admin_0_map_subunits b WHERE a.adm0_a3 = b.adm0_a3;
+
+# update natural earth fips with geonames countryinfo
+UPDATE ne_10m_admin_0_map_subunits a SET fips_10 = b.fips FROM countryinfo b where a.iso_a2_eh = b.iso AND a.fips_10 = '-99';
 ```
 
 Intersect subunits and contours  
