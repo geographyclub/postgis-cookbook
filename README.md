@@ -34,22 +34,19 @@ GRANT CONNECT ON DATABASE world TO saga;
 GRANT USAGE ON SCHEMA public TO saga;
 ```
 
-Set backend
-
-```
+Set backend  
+```bash
 SET postgis.backend = sfcgal;
 SET postgis.backend = geos;
 ```
 
-Restart server
-
+Restart server  
 `sudo systemctl restart postgresql`
 
 ## Importing
 
-Import vector
-
-```
+Import vector  
+```bash
 #===============================================
 # Some useful options:  						
 # -skipfailures  								
@@ -68,24 +65,20 @@ ogr2ogr -nln countries110m -nlt PROMOTE_TO_MULTI -nlt MULTIPOLYGON -lco precisio
 shp2pgsql -I -s 4326 simplified_land_polygons.shp simplified_land_polygons | psql -d worldmap
 ```
 
-Import raster
-
+Import raster  
 `raster2pgsql -d -s 4326 -I -C -M topo15_43200.tif -F -t 1x1 topo15_43200 | psql -d world`
 
-Import json
-
-```
+Import json  
+```bash
 \set content `cat factbook.json`
 CREATE TABLE factbook ( content jsonb );
 INSERT INTO factbook values (:'content');
 ```
 
-Copy db to db
-
+Copy db to db  
 `ogr2ogr -overwrite -lco precision=NO --config PG_USE_COPY YES -f PGDump /vsistdout/ PG:dbname=contours fishbase | psql -d gbif -f -`
 
-Copy table to table
-
+Copy table to table  
 `psql -d world -c "CREATE TABLE ne_10m_admin_0_countries_3857 AS TABLE ne_10m_admin_0_countries;"`
 
 ## Exporting
@@ -141,6 +134,9 @@ ogr2ogr -overwrite -f "SQLite" -dsco SPATIALITE=YES avh.sqlite PG:dbname=contour
 # using pgsql2shp
 pgsql2shp -f "test" -u steve weather "SELECT metar.station_id,metar.temp_c,ST_MakeLine(metar.geom,metar.translated) FROM metar_20180320_183305 AS metar;
 ```
+
+Export to json  
+`psql -d world - c "SELECT jsonb_pretty(jsonb_agg(row_to_json(countryinfo))) FROM countryinfo WHERE country IN ('Brunei','Cambodia','Indonesia','Laos','Malaysia','Myanmar','Philippines','Singapore','Thailand','Vietnam');" > asean_countryinfo.json`
 
 ## Basic operations
 
@@ -604,9 +600,9 @@ UPDATE geonames a SET fcode_en = b.name FROM featurecode_en b WHERE concat(a.fea
 ALTER TABLE geonames ADD COLUMN fcode_desc text;
 UPDATE geonames a SET fcode_desc = b.description FROM featurecode_en b WHERE concat(a.featureclass, '.', a.featurecode) = b.featurecode;
 
-# import country info
+# import country info (delete header lines in countryInfo.txt)
 CREATE TABLE countryinfo(iso text, iso3 text, iso_numeric int, fips text, country text, capital text, area float, population int, continent text, tld text, currencycode text, currencyname text, phone text, postalcodeformat text, postalcoderegex text, languages text, geonameid int, neighbours text, equivalentfips text);
-COPY countryinfo FROM 'countryInfo.txt' DELIMITER E'\t' CSV HEADER;
+COPY countryinfo FROM '/home/steve/maps/geonames/countryInfo.txt' DELIMITER E'\t' CSV HEADER;
 
 # import alternate names
 CREATE TABLE alternatenames(alternatenameid int, geonameid int, isolanguage text, alternatename text, ispreferredname text, isshortname text, iscolloquial text, ishistoric text, date_from text, date_to text);
@@ -682,6 +678,13 @@ Export
 ```bash
 # nearest contour line
 ogr2ogr -overwrite -update -f "SQLite" -sql "SELECT a.featurecode_name, a.featureclass, (SELECT b.geom FROM contour10m_segments1_5 AS b ORDER BY b.geom <-> ST_GeometryN(ST_Collect(a.geom),1) LIMIT 1) FROM allcountries AS a WHERE a.geom && ST_MakeEnvelope(-123,41,-111,51) AND a.featureclass IN ('T','H','U','V') GROUP BY a.featurecode_name, a.featureclass" export.sqlite -nln geonames -nlt LINESTRING PG:"dbname=topo15
+```
+
+Export ASEAN data
+```bash
+psql -d world -c "SELECT jsonb_pretty(jsonb_agg(row_to_json(countryinfo))) FROM countryinfo WHERE country IN ('Brunei','Cambodia','Indonesia','Laos','Malaysia','Myanmar','Philippines','Singapore','Thailand','Vietnam');" > ~/maps/geonames/asean_countryinfo.json
+
+
 ```
 
 ### GHCN
