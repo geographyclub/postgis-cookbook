@@ -43,6 +43,14 @@ SET postgis.backend = geos;
 Restart server  
 `sudo systemctl restart postgresql`
 
+Change versions  
+```bash
+pg_dump -U steve -d osm -F c -f your_database_dump.custom
+dropdb -U steve osm
+createdb -U steve -E UTF8 -T template0 --locale=en_US.utf8 osm
+pg_restore -U steve -d osm your_database_dump.custom
+```
+
 ## Importing
 
 Import vector  
@@ -397,6 +405,13 @@ Dissolve/union
 `UPDATE grid04_countries a SET geom = (SELECT ST_Multi(ST_Union(b.geom))::GEOMETRY(MULTIPOLYGON, 4326) FROM grid04 b WHERE ST_Intersects(a.geom, b.geom));`
 
 `CREATE TABLE wwf_ecoregion AS SELECT eco_name, realm_name, biome_name, ST_Union(geom) AS geom FROM wwf_ecoregion_test GROUP BY eco_name, realm_name, biome_name;`
+
+Union all  
+```bash
+ls *.osm.pbf | grep -v -e 'latest' -e 'Barcelona' -e 'Dublin' -e 'Krakow' | sed -e 's/^/SELECT name, highway, railway, other_tags, wkb_geometry FROM /g' -e 's/.osm.pbf/_lines UNION ALL/g' | xargs | sed -e "s/^/psql -d osm -c 'CREATE TABLE city_lines AS /" -e "s/ UNION ALL$/;'/g"
+psql -d osm -c "ALTER TABLE city_lines ADD COLUMN fid serial PRIMARY KEY;"
+psql -d osm -c "CREATE INDEX city_lines_gid ON city_lines USING GIST (wkb_geometry);"
+```
 
 Difference  
 ```bash
@@ -905,7 +920,7 @@ Intersect subunits and contours
 Import points, lines, multilines & polygons from shell  
 ```bash
 # for hstore: -lco COLUMN_TYPES=other_tags=hstore
-osmfile=Johannesburg.osm.pbf
+osmfile=Toronto.osm.pbf
 ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nln ${osmfile%.osm.pbf}_points PG:dbname=osm ${osmfile} points
 ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nln ${osmfile%.osm.pbf}_lines PG:dbname=osm ${osmfile} lines
 ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nlt promote_to_multi -nln ${osmfile%.osm.pbf}_multilines PG:dbname=osm ${osmfile} multilinestrings
