@@ -43,12 +43,13 @@ SET postgis.backend = geos;
 Restart server  
 `sudo systemctl restart postgresql`
 
-Change versions  
+Change versions (collation version mismatch)
 ```bash
-pg_dump -U steve -d osm -F c -f your_database_dump.custom
-dropdb -U steve osm
-createdb -U steve -E UTF8 -T template0 --locale=en_US.utf8 osm
-pg_restore -U steve -d osm your_database_dump.custom
+db=us
+pg_dump -U steve -d ${db} -F c -f your_database_dump.custom
+dropdb -U steve ${db}
+createdb -U steve -E UTF8 -T template0 --locale=en_US.utf8 ${db}
+pg_restore -U steve -d ${db} your_database_dump.custom
 ```
 
 ## Importing
@@ -823,7 +824,7 @@ psql -d world -c "CREATE INDEX riveratlas_v10_${subunit}_gid ON riveratlas_v10_$
 
 Basins to voronoi polygons  
 ```bash
-a=08
+a=06
 psql -d world -c "DROP TABLE IF EXISTS basinatlas_v10_lev${a}_voronoi;"
 psql -d world -c "CREATE TABLE basinatlas_v10_lev${a}_voronoi AS SELECT * FROM basinatlas_v10_lev${a};"
 psql -d world -c "ALTER TABLE basinatlas_v10_lev${a}_voronoi ALTER COLUMN shape TYPE geometry;"
@@ -912,15 +913,31 @@ UPDATE ne_10m_populated_places a SET continent = b.continent FROM ne_10m_admin_0
 UPDATE ne_10m_admin_0_map_subunits a SET fips_10 = b.fips FROM countryinfo b where a.iso_a2_eh = b.iso AND a.fips_10 = '-99';
 ```
 
-Intersect subunits and contours  
-`psql -d world -c "CREATE TABLE topo15_4320_1000m_polygon_subunits AS SELECT $(echo $(psql -qAtX -d world -c '\d ne_10m_admin_0_map_subunits' | grep -v "shape" | sed -e 's/^/a./g' -e 's/|.*//g' | paste -sd',')), b.amin, b.amax, (ST_Multi(ST_Intersection(ST_Buffer(a.geom,0), (ST_Buffer(b.geom,0)))))::geometry(MultiPolygon,4326) AS geom FROM ne_10m_admin_0_map_subunits a, topo15_4320_1000m_polygon b WHERE ST_Intersects(a.geom, b.geom);"`
+Intersect with contours  
+```bash
+psql -d world -c "CREATE TABLE topo15_4320_1000m_polygon_subunits AS SELECT $(echo $(psql -qAtX -d world -c '\d ne_10m_admin_0_map_subunits' | grep -v "shape" | sed -e 's/^/a./g' -e 's/|.*//g' | paste -sd',')), b.amin, b.amax, (ST_Multi(ST_Intersection(ST_Buffer(a.geom,0), (ST_Buffer(b.geom,0)))))::geometry(MultiPolygon,4326) AS geom FROM ne_10m_admin_0_map_subunits a, topo15_4320_1000m_polygon b WHERE ST_Intersects(a.geom, b.geom);"
+```
+
+Intersect with grid and dissolve  
+```bash
+table=ne_50m_admin_0_map_subunits
+columns=$(psql -AtqX -d world -c "SELECT string_agg(column_name, ', ' order by ordinal_position) as columns FROM information_schema.columns WHERE table_name = '${table}' AND column_name NOT IN ('geom','shape','geometry') GROUP BY table_name;" | sed -e "s/^/b./" -e 's/, /, b./g')
+psql -d world -c "DROP TABLE IF EXISTS grid02_${table}; CREATE TABLE grid02_${table} AS SELECT ST_Union(a.geom) geom, ${columns} FROM grid02 a, ${table} b WHERE ST_Intersects(a.geom, b.geom) GROUP BY b.fid;"
+```
+
+Snap lines to grid  
+```bash
+table=ne_10m_roads
+columns=$(psql -AtqX -d world -c "SELECT string_agg(column_name, ', ' order by ordinal_position) as columns FROM information_schema.columns WHERE table_name = '${table}' AND column_name NOT IN ('geom','shape','geometry') GROUP BY table_name;")
+psql -d world -c "DROP TABLE IF EXISTS grid1_${table}; CREATE TABLE grid04_${table} AS SELECT ${columns}, ST_SnapToGrid(ST_Segmentize(geom, 0.8), 0.4) geom FROM ${table};"
+```
 
 ### OpenStreetMap
 
 Import points, lines, multilines & polygons from shell  
 ```bash
 # for hstore: -lco COLUMN_TYPES=other_tags=hstore
-osmfile=Toronto.osm.pbf
+osmfile=asean.vrt
 ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nln ${osmfile%.osm.pbf}_points PG:dbname=osm ${osmfile} points
 ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nln ${osmfile%.osm.pbf}_lines PG:dbname=osm ${osmfile} lines
 ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nlt promote_to_multi -nln ${osmfile%.osm.pbf}_multilines PG:dbname=osm ${osmfile} multilinestrings
@@ -934,6 +951,16 @@ Working with other_tags
 ```bash
 # list other_tags
 SELECT DISTINCT other_tags FROM bangkok_polygons WHERE other_tags IS NOT NULL ORDER BY other_tags;
+
+# select all public transport stations
+SELECT name, other_tags FROM bangkok_points WHERE other_tags LIKE '%"public_transport"=>"station"%';
+
+# create table of subways stations
+CREATE TABLE bangkok_subway_stations AS SELECT * FROM bangkok_points WHERE other_tags LIKE '%station"=>"subway"%';
+
+# count amenties by neighborhood
+psql -d osm -c "ALTER TABLE ${place}_polygons ADD COLUMN amenity_count int;"
+psql -d osm -c "WITH stats AS (SELECT a.osm_id, count(b.other_tags LIKE '%amenity%') count FROM ${place}_polygons a, ${place}_points b WHERE a.admin_level IS NOT NULL AND b.other_tags LIKE '%amenity%' AND ST_Intersects(a.wkb_geometry, b.wkb_geometry) GROUP BY a.osm_id) UPDATE ${place}_polygons a SET amenity_count = stats.count FROM stats WHERE a.osm_id = stats.osm_id;"
 ```
 
 Highways  
@@ -946,15 +973,6 @@ SELECT ST_Union(ST_Intersection(a.wkb_geometry,b.wkb_geometry)) wkb_geometry FRO
 
 # buffer highways by type
 CREATE TABLE bangkok_highway_buffer5 AS SELECT highway, (ST_Dump(ST_Union(ST_Buffer(wkb_geometry,5)))).geom::GEOMETRY(POLYGON,3857) wkb_geometry FROM bangkok_lines GROUP BY highway;
-```
-
-Public transportation  
-```bash
-# select all public transport stations
-SELECT name, other_tags FROM bangkok_points WHERE other_tags LIKE '%"public_transport"=>"station"%';
-
-# create table of subways stations
-CREATE TABLE bangkok_subway_stations AS SELECT * FROM bangkok_points WHERE other_tags LIKE '%station"=>"subway"%';
 ```
 
 Extract by polygon  
@@ -979,10 +997,6 @@ psql -d osm -c "CREATE INDEX ${place}_highway_polygons_gid ON ${place}_highway_p
 psql -d osm -c "ALTER TABLE ${place}_highway_polygons ADD COLUMN landuse text; UPDATE ${place}_highway_polygons SET landuse = NULL; UPDATE ${place}_highway_polygons a SET landuse = b.landuse FROM ${place}_polygons b WHERE ST_Intersects(a.wkb_geometry,ST_Buffer(b.wkb_geometry,0)) AND b.landuse IS NOT NULL AND ST_IsValid(b.wkb_geometry);"
 # add natural
 psql -d osm -c "ALTER TABLE ${place}_highway_polygons ADD COLUMN \"natural\" text; UPDATE ${place}_highway_polygons SET \"natural\" = NULL; UPDATE ${place}_highway_polygons a SET \"natural\" = b.natural FROM ${place}_polygons b WHERE ST_Intersects(a.wkb_geometry,ST_Buffer(b.wkb_geometry,0)) AND b.natural IS NOT NULL AND ST_IsValid(b.wkb_geometry);"
-
-# count amenties by neighborhood
-psql -d osm -c "ALTER TABLE ${place}_polygons ADD COLUMN amenity_count int;"
-psql -d osm -c "WITH stats AS (SELECT a.osm_id, count(b.other_tags LIKE '%amenity%') count FROM ${place}_polygons a, ${place}_points b WHERE a.admin_level IS NOT NULL AND b.other_tags LIKE '%amenity%' AND ST_Intersects(a.wkb_geometry, b.wkb_geometry) GROUP BY a.osm_id) UPDATE ${place}_polygons a SET amenity_count = stats.count FROM stats WHERE a.osm_id = stats.osm_id;"
 ```
 
 ### WWF Ecoregions
