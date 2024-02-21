@@ -920,16 +920,27 @@ psql -d world -c "CREATE TABLE topo15_4320_1000m_polygon_subunits AS SELECT $(ec
 
 Intersect with grid and dissolve  
 ```bash
-table=ne_50m_admin_0_map_subunits
+# by creating table (creates overlapping features)
+table=ne_10m_admin_1_states_provinces_lakes
 columns=$(psql -AtqX -d world -c "SELECT string_agg(column_name, ', ' order by ordinal_position) as columns FROM information_schema.columns WHERE table_name = '${table}' AND column_name NOT IN ('geom','shape','geometry') GROUP BY table_name;" | sed -e "s/^/b./" -e 's/, /, b./g')
 psql -d world -c "DROP TABLE IF EXISTS grid02_${table}; CREATE TABLE grid02_${table} AS SELECT ST_Union(a.geom) geom, ${columns} FROM grid02 a, ${table} b WHERE ST_Intersects(a.geom, b.geom) GROUP BY b.fid;"
+
+# by adding column (one feature per grid cell)
+nickname=countries
+table=ne_10m_admin_0_countries_lakes
+psql -d world -c "ALTER TABLE grid02 ADD COLUMN ${nickname} INT;"
+psql -d world -c "UPDATE grid02 a SET ${nickname} = b.fid FROM ${table} b WHERE ST_Intersects(a.geom, b.geom);"
+#psql -d world -c "UPDATE grid02 a SET ${nickname} = (SELECT b.fid FROM ${table} b WHERE ST_Intersects(a.geom, b.geom) ORDER BY ST_Distance(a.geom, b.geom) ASC LIMIT 1);"
+
+columns=$(psql -AtqX -d world -c "SELECT string_agg(column_name, ', ' order by ordinal_position) as columns FROM information_schema.columns WHERE table_name = '${table}' AND column_name NOT IN ('geom','shape','geometry') GROUP BY table_name;" | sed -e "s/^/b./" -e 's/, /, b./g')
+psql -d world -c "DROP TABLE IF EXISTS grid02_${nickname}; CREATE TABLE grid02_${nickname} AS SELECT ST_Union(ST_Buffer(a.geom,0)) geom, ${columns} FROM grid02 a, ${table} b WHERE a.${nickname} = b.fid GROUP BY b.fid;"
 ```
 
 Snap lines to grid  
 ```bash
 table=ne_10m_roads
 columns=$(psql -AtqX -d world -c "SELECT string_agg(column_name, ', ' order by ordinal_position) as columns FROM information_schema.columns WHERE table_name = '${table}' AND column_name NOT IN ('geom','shape','geometry') GROUP BY table_name;")
-psql -d world -c "DROP TABLE IF EXISTS grid1_${table}; CREATE TABLE grid04_${table} AS SELECT ${columns}, ST_SnapToGrid(ST_Segmentize(geom, 0.8), 0.4) geom FROM ${table};"
+psql -d world -c "DROP TABLE IF EXISTS grid04_${table}; CREATE TABLE grid04_${table} AS SELECT ${columns}, ST_SnapToGrid(ST_Segmentize(geom, 0.8), 0.4) geom FROM ${table};"
 ```
 
 ### OpenStreetMap
@@ -952,19 +963,24 @@ Working with other_tags
 # list other_tags
 SELECT DISTINCT other_tags FROM bangkok_polygons WHERE other_tags IS NOT NULL ORDER BY other_tags;
 
+# list and count distinct tags (as hstore)
+SELECT skeys(hstore(other_tags)) AS tag_key, COUNT(*) AS key_count FROM us_latest_points WHERE other_tags IS NOT NULL GROUP BY tag_key ORDER BY key_count DESC;
+
+# select other_tags  
+SELECT other_tags FROM multipolygons WHERE other_tags LIKE '%construction%';
+
+# select keys and values
+SELECT key_value_pair, COUNT(*) AS key_count FROM (SELECT other_tags, key_value[1] || ' => ' || key_value[2] AS key_value_pair FROM (SELECT other_tags, regexp_split_to_array(other_tags, '=>') AS key_value FROM us_latest_points WHERE other_tags IS NOT NULL) AS subquery) AS subquery2 GROUP BY key_value_pair ORDER BY key_count DESC;
+```
+
+Trasportation  
+```bash
 # select all public transport stations
 SELECT name, other_tags FROM bangkok_points WHERE other_tags LIKE '%"public_transport"=>"station"%';
 
 # create table of subways stations
 CREATE TABLE bangkok_subway_stations AS SELECT * FROM bangkok_points WHERE other_tags LIKE '%station"=>"subway"%';
 
-# count amenties by neighborhood
-psql -d osm -c "ALTER TABLE ${place}_polygons ADD COLUMN amenity_count int;"
-psql -d osm -c "WITH stats AS (SELECT a.osm_id, count(b.other_tags LIKE '%amenity%') count FROM ${place}_polygons a, ${place}_points b WHERE a.admin_level IS NOT NULL AND b.other_tags LIKE '%amenity%' AND ST_Intersects(a.wkb_geometry, b.wkb_geometry) GROUP BY a.osm_id) UPDATE ${place}_polygons a SET amenity_count = stats.count FROM stats WHERE a.osm_id = stats.osm_id;"
-```
-
-Highways  
-```bash
 # dissolve highways by name
 CREATE TABLE bangkok_highway_dissolve AS SELECT name, highway, ST_Union(wkb_geometry) wkb_geometry FROM bangkok_lines GROUP BY name, highway; 
 
@@ -973,6 +989,20 @@ SELECT ST_Union(ST_Intersection(a.wkb_geometry,b.wkb_geometry)) wkb_geometry FRO
 
 # buffer highways by type
 CREATE TABLE bangkok_highway_buffer5 AS SELECT highway, (ST_Dump(ST_Union(ST_Buffer(wkb_geometry,5)))).geom::GEOMETRY(POLYGON,3857) wkb_geometry FROM bangkok_lines GROUP BY highway;
+```
+
+Amenities  
+```bash
+# count amenties by neighborhood
+psql -d osm -c "ALTER TABLE ${place}_polygons ADD COLUMN amenity_count int;"
+psql -d osm -c "WITH stats AS (SELECT a.osm_id, count(b.other_tags LIKE '%amenity%') count FROM ${place}_polygons a, ${place}_points b WHERE a.admin_level IS NOT NULL AND b.other_tags LIKE '%amenity%' AND ST_Intersects(a.wkb_geometry, b.wkb_geometry) GROUP BY a.osm_id) UPDATE ${place}_polygons a SET amenity_count = stats.count FROM stats WHERE a.osm_id = stats.osm_id;"
+
+# count place_of_worship
+geographies=('state' 'county' 'place' 'puma')
+for geography in ${geographies[*]}; do
+  psql -d osm -c "ALTER TABLE ${geography}2022 DROP COLUMN IF EXISTS worship_count; ALTER TABLE ${geography}2022 ADD COLUMN worship_count int;"
+  psql -d osm -c "WITH stats AS (SELECT a.geoid, count(b.other_tags LIKE '%place_of_worship%') count FROM ${geography}2022 a, us_latest_points b WHERE b.other_tags LIKE '%place_of_worship%' AND ST_Intersects(a.shape, b.wkb_geometry) GROUP BY a.geoid) UPDATE ${geography}2022 a SET worship_count = stats.count FROM stats WHERE a.geoid = stats.geoid;"
+done
 ```
 
 Extract by polygon  
@@ -998,6 +1028,14 @@ psql -d osm -c "ALTER TABLE ${place}_highway_polygons ADD COLUMN landuse text; U
 # add natural
 psql -d osm -c "ALTER TABLE ${place}_highway_polygons ADD COLUMN \"natural\" text; UPDATE ${place}_highway_polygons SET \"natural\" = NULL; UPDATE ${place}_highway_polygons a SET \"natural\" = b.natural FROM ${place}_polygons b WHERE ST_Intersects(a.wkb_geometry,ST_Buffer(b.wkb_geometry,0)) AND b.natural IS NOT NULL AND ST_IsValid(b.wkb_geometry);"
 ```
+
+### Worldpop
+
+Resample  
+`gdalwarp -s_srs 'EPSG:4326' -t_srs 'EPSG:4326' -tr 0.08 0.08 -r cubicspline ppp_2020_1km_Aggregated.tif /vsistdout/ | gdalwarp -s_srs 'EPSG:4326' -t_srs 'EPSG:4326' -tr 0.008 0.008 -r cubicspline /vsistdin/ ppp_2020_1km_Aggregated_008_0008.tif`
+
+Contours  
+`gdal_contour -p -fl 100 200 300 400 500 600 700 800 900 1000 -amin amin -amax amax ppp_2020_1km_Aggregated_008_0008.tif ppp_2020_1km_Aggregated_008_0008_contours.gpkg`
 
 ### WWF Ecoregions
 
