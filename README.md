@@ -448,8 +448,8 @@ SELECT a.featurecode_name, a.featureclass, (SELECT b.geom FROM contour10m_segmen
 # single point
 SELECT * FROM tor_female WHERE CTUID = (SELECT CTUID FROM toronto_points_ct ORDER BY geom <-> ST_SetSRID(ST_MakePoint(-79.40,43.67),4326) LIMIT 1);
 
-# nearest METARS station
-SELECT m.station_id FROM ${mytable} AS m ORDER BY m.geom <-> p.geom LIMIT 1;
+# nearest METARS station and place
+CREATE TABLE metars_place_lines AS SELECT a.name AS place, b.station_id AS station_id, ST_MakeLine(a.geom, b.wkb_geometry) AS connecting_line FROM ne_10m_populated_places a, LATERAL (SELECT station_id, wkb_geometry FROM metars ORDER BY a.geom <-> metars.wkb_geometry LIMIT 1) b;
 
 # with cte
 CREATE TABLE labels_italy AS WITH points AS (SELECT (ST_DumpPoints(b.geom)).geom::GEOMETRY(point, 4326) as geom FROM countries b WHERE name IN ('Italy')) SELECT a.name, (SELECT b.geom FROM points b ORDER BY b.geom <-> a.geom LIMIT 1) FROM places a WHERE adm0name IN ('Italy');
@@ -480,6 +480,9 @@ Intersects
 `UPDATE grid100 a SET line_id = b.osm_id FROM planet_osm_line b WHERE ST_Intersects(a.geom,b.way) AND b.highway IN ('motorway','primary','secondary','tertiary','residential');`
 
 `SELECT count(*), c.name FROM countries c JOIN places p ON ST_Intersects(c.geom, p.geom) GROUP BY c.name;`
+
+Find area  
+`WITH intersection_area AS (SELECT ST_Intersection(a.geom, b.geom) AS geom, ST_Area(ST_Intersection(a.geom, b.geom)) AS area FROM your_polygon_table a, your_polygon_table b WHERE a.id <> b.id AND ST_Intersects(a.geom, b.geom)) SELECT a.id AS polygon_id_1, b`
 
 Sample raster  
 ```bash
@@ -973,7 +976,13 @@ SELECT other_tags FROM multipolygons WHERE other_tags LIKE '%construction%';
 SELECT key_value_pair, COUNT(*) AS key_count FROM (SELECT other_tags, key_value[1] || ' => ' || key_value[2] AS key_value_pair FROM (SELECT other_tags, regexp_split_to_array(other_tags, '=>') AS key_value FROM us_latest_points WHERE other_tags IS NOT NULL) AS subquery) AS subquery2 GROUP BY key_value_pair ORDER BY key_count DESC;
 ```
 
-Trasportation  
+Parks
+```bash
+# national and state parks
+CREATE TABLE us_parks AS SELECT * FROM us_latest_polygons WHERE other_tags LIKE '%"protection_title"=>"State Park"%' OR other_tags LIKE '%"protection_title"=>"National Park"%';
+```
+
+Transportation  
 ```bash
 # select all public transport stations
 SELECT name, other_tags FROM bangkok_points WHERE other_tags LIKE '%"public_transport"=>"station"%';
@@ -997,15 +1006,15 @@ Amenities
 psql -d osm -c "ALTER TABLE ${place}_polygons ADD COLUMN amenity_count int;"
 psql -d osm -c "WITH stats AS (SELECT a.osm_id, count(b.other_tags LIKE '%amenity%') count FROM ${place}_polygons a, ${place}_points b WHERE a.admin_level IS NOT NULL AND b.other_tags LIKE '%amenity%' AND ST_Intersects(a.wkb_geometry, b.wkb_geometry) GROUP BY a.osm_id) UPDATE ${place}_polygons a SET amenity_count = stats.count FROM stats WHERE a.osm_id = stats.osm_id;"
 
-# count place_of_worship
+# place_of_worship
 geographies=('state' 'county' 'place' 'puma')
 for geography in ${geographies[*]}; do
   psql -d osm -c "ALTER TABLE ${geography}2022 DROP COLUMN IF EXISTS worship_count; ALTER TABLE ${geography}2022 ADD COLUMN worship_count int;"
-  psql -d osm -c "WITH stats AS (SELECT a.geoid, count(b.other_tags LIKE '%place_of_worship%') count FROM ${geography}2022 a, us_latest_points b WHERE b.other_tags LIKE '%place_of_worship%' AND ST_Intersects(a.shape, b.wkb_geometry) GROUP BY a.geoid) UPDATE ${geography}2022 a SET worship_count = stats.count FROM stats WHERE a.geoid = stats.geoid;"
+  psql -d osm -c "WITH stats AS (SELECT a.geoid, count(b.other_tags LIKE '%place_of_worship%') count FROM ${geography}2022 a, us_latest_points b WHERE b.other_tags LIKE '%place_of_worship%' AND ST_Intersects(ST_Buffer(a.shape,0), b.wkb_geometry) GROUP BY a.geoid) UPDATE ${geography}2022 a SET worship_count = stats.count FROM stats WHERE a.geoid = stats.geoid;"
 done
 ```
 
-Extract by polygon  
+Extract by boundary polygon  
 ```bash
 # phuket points
 CREATE TABLE phuket_points AS SELECT a.id, a.osm_id, a.name, a.barrier, a.highway, a.ref, a.address, a.is_in, a.place, a.man_made, a.other_tags, ST_Intersection(a.geom, b.geom) geom FROM thailand_points a, thailand_polygons b WHERE b.other_tags LIKE '%Ko Phuket%' AND ST_Intersects(a.geom, b.geom);
@@ -1013,20 +1022,6 @@ CREATE TABLE phuket_points AS SELECT a.id, a.osm_id, a.name, a.barrier, a.highwa
 CREATE TABLE phuket_lines AS SELECT a.id, a.osm_id, a.name, a.highway, a.waterway, a.aerialway, a.barrier, a.man_made, a.railway, a.z_order, a.other_tags, ST_Intersection(a.geom, b.geom) geom FROM thailand_lines a, thailand_polygons b WHERE b.other_tags LIKE '%Ko Phuket%' AND ST_Intersects(a.geom, b.geom);
 # phuket polygons
 CREATE TABLE phuket_polygons AS WITH b AS (SELECT geom FROM thailand_polygons WHERE other_tags LIKE '%Ko Phuket%') SELECT a.id, a.osm_id, a.osm_way_id, a.name, a.type, a.aeroway, a.amenity, a.admin_level, a.barrier, a.boundary, a.building, a.craft, a.geological, a.historic, a.land_area, a.landuse, a.leisure, a.man_made, a.military, a.natural, a.office, a.place, a.shop, a.sport, a.tourism, a.other_tags, ST_Intersection(a.geom, b.geom) geom FROM thailand_polygons a, b WHERE ST_Intersects(a.geom, b.geom);
-```
-
-Batch processing from shell  
-```bash
-place=thailand
-# highway to polygon
-psql -d osm -c "DROP TABLE IF EXISTS ${place}_highway_polygons; CREATE TABLE ${place}_highway_polygons AS SELECT (ST_Dump(ST_CollectionExtract(ST_Split(a.wkb_geometry,b.wkb_geometry),3))).geom::GEOMETRY(POLYGON,3857) wkb_geometry FROM (SELECT ST_Extent(wkb_geometry)::GEOMETRY(POLYGON,3857) wkb_geometry FROM ${place}_lines) a, (SELECT (ST_Union(wkb_geometry))::GEOMETRY(MULTILINESTRING,3857) wkb_geometry FROM ${place}_lines WHERE highway IN ('motorway','trunk','primary','secondary','tertiary','residential')) b;"
-# add indexes
-psql -d osm -c "ALTER TABLE ${place}_highway_polygons ADD COLUMN fid serial PRIMARY KEY;"
-psql -d osm -c "CREATE INDEX ${place}_highway_polygons_gid ON ${place}_highway_polygons USING GIST (wkb_geometry);"
-# add landuse
-psql -d osm -c "ALTER TABLE ${place}_highway_polygons ADD COLUMN landuse text; UPDATE ${place}_highway_polygons SET landuse = NULL; UPDATE ${place}_highway_polygons a SET landuse = b.landuse FROM ${place}_polygons b WHERE ST_Intersects(a.wkb_geometry,ST_Buffer(b.wkb_geometry,0)) AND b.landuse IS NOT NULL AND ST_IsValid(b.wkb_geometry);"
-# add natural
-psql -d osm -c "ALTER TABLE ${place}_highway_polygons ADD COLUMN \"natural\" text; UPDATE ${place}_highway_polygons SET \"natural\" = NULL; UPDATE ${place}_highway_polygons a SET \"natural\" = b.natural FROM ${place}_polygons b WHERE ST_Intersects(a.wkb_geometry,ST_Buffer(b.wkb_geometry,0)) AND b.natural IS NOT NULL AND ST_IsValid(b.wkb_geometry);"
 ```
 
 ### Worldpop
@@ -1039,7 +1034,7 @@ Contours
 
 ### WWF Ecoregions
 
-Insert biome names
+Insert biome names  
 ```bash
 ALTER TABLE wwf_terr_ecos ADD COLUMN biome_name text;
 UPDATE wwf_terr_ecos SET biome_name = CASE WHEN "biome" = 1 THEN 'Tropical & Subtropical Moist Broadleaf Forests'
