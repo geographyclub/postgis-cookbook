@@ -13,7 +13,7 @@ Useful commands for working with spatial data in psql and bash.
 
 ## Starting out
 
-Sign in for the first time  
+Sign in for the first time
 ```sql
 sudo -u postgres psql
 ```
