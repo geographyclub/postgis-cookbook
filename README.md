@@ -13,38 +13,39 @@ Useful commands for working with spatial data in psql and bash.
 
 ## Starting out
 
-Sign in for the first time
-
-`sudo -u postgres psql`
-
-Create db
-
+Sign in for the first time  
+```sql
+sudo -u postgres psql
 ```
+
+Create db  
+```sql
 CREATE USER steve;
 ALTER USER steve WITH SUPERUSER;
 createdb -O steve world
 CREATE EXTENSION postgis; CREATE EXTENSION postgis_topology; CREATE EXTENSION postgis_raster; CREATE EXTENSION postgis_sfcgal; CREATE EXTENSION hstore; CREATE extension tablefunc;
 ```
 
-Add user and password
-
-```
+Add user and password  
+```sql
 CREATE ROLE saga LOGIN PASSWORD 'password';
 GRANT CONNECT ON DATABASE world TO saga;
 GRANT USAGE ON SCHEMA public TO saga;
 ```
 
 Set backend  
-```bash
+```sql
 SET postgis.backend = sfcgal;
 SET postgis.backend = geos;
 ```
 
 Restart server  
-`sudo systemctl restart postgresql`
+```sql
+sudo systemctl restart postgresql
+```
 
-Change versions (collation version mismatch)
-```bash
+Change versions (collation version mismatch)  
+```sql
 db=us
 pg_dump -U steve -d ${db} -F c -f your_database_dump.custom
 dropdb -U steve ${db}
@@ -55,7 +56,7 @@ pg_restore -U steve -d ${db} your_database_dump.custom
 ## Importing
 
 Import vector  
-```bash
+```sql
 #===============================================
 # Some useful options:  						
 # -skipfailures  								
@@ -75,25 +76,31 @@ shp2pgsql -I -s 4326 simplified_land_polygons.shp simplified_land_polygons | psq
 ```
 
 Import raster  
-`raster2pgsql -d -s 4326 -I -C -M topo15_43200.tif -F -t 1x1 topo15_43200 | psql -d world`
+```sql
+raster2pgsql -d -s 4326 -I -C -M topo15_43200.tif -F -t 1x1 topo15_43200 | psql -d world
+```
 
 Import json  
-```bash
+```sql
 \set content `cat factbook.json`
 CREATE TABLE factbook ( content jsonb );
 INSERT INTO factbook values (:'content');
 ```
 
 Copy db to db  
-`ogr2ogr -overwrite -lco precision=NO --config PG_USE_COPY YES -f PGDump /vsistdout/ PG:dbname=contours fishbase | psql -d gbif -f -`
+```sql
+ogr2ogr -overwrite -lco precision=NO --config PG_USE_COPY YES -f PGDump /vsistdout/ PG:dbname=contours fishbase | psql -d gbif -f -
+```
 
 Copy table to table  
-`psql -d world -c "CREATE TABLE ne_10m_admin_0_countries_3857 AS TABLE ne_10m_admin_0_countries;"`
+```sql
+psql -d world -c "CREATE TABLE ne_10m_admin_0_countries_3857 AS TABLE ne_10m_admin_0_countries;"
+```
 
 ## Exporting
 
 Export to svg, one file per feature  
-```bash
+```sql
 table='ne_10m_admin_0_countries_lakes'
 height=1920
 width=960
@@ -103,7 +110,7 @@ done
 ```
 
 Export to svg, one file per table  
-```bash
+```sql
 layer=wwf_terr_ecos
 continent="Asia"
 width=1920
@@ -133,10 +140,12 @@ done
 ```
 
 Export to csv  
-`psql -d grids -c "COPY (SELECT fid,scalerank,name,adm1name,round(longitude::numeric,2),round(latitude::numeric,2) FROM places) TO STDOUT WITH CSV DELIMITER '|';" > places.csv`
+```sql
+psql -d grids -c "COPY (SELECT fid,scalerank,name,adm1name,round(longitude::numeric,2),round(latitude::numeric,2) FROM places) TO STDOUT WITH CSV DELIMITER '|';" > places.csv
+```
 
 Export to ogr  
-```bash
+```sql
 # using ogr
 ogr2ogr -overwrite -f "SQLite" -dsco SPATIALITE=YES avh.sqlite PG:dbname=contours avh
 
@@ -145,7 +154,7 @@ pgsql2shp -f "test" -u steve weather "SELECT metar.station_id,metar.temp_c,ST_Ma
 ```
 
 Export to json  
-```bash
+```sql
 # export with indents
 psql -d world - c "SELECT jsonb_pretty(jsonb_agg(row_to_json(countryinfo))) FROM countryinfo WHERE country IN ('Brunei','Cambodia','Indonesia','Laos','Malaysia','Myanmar','Philippines','Singapore','Thailand','Vietnam');" > asean_countryinfo.json
 
@@ -156,10 +165,12 @@ psql -d world - c "SELECT jsonb_agg(row_to_json(countryinfo)) FROM countryinfo W
 ## Basic operations
 
 List tables  
-`COPY (SELECT * FROM pg_catalog.pg_tables) TO STDOUT;`
+```sql
+COPY (SELECT * FROM pg_catalog.pg_tables) TO STDOUT;
+```
 
 List columns  
-```bash
+```sql
 # search tables that start with ne_10m
 COPY (SELECT table_name, string_agg(column_name, ', ' order by ordinal_position) as columns FROM information_schema.columns WHERE table_name LIKE 'ne_10m%' GROUP BY table_name;) TO STDOUT
 
@@ -168,13 +179,13 @@ COPY (WITH b AS (SELECT table_name, string_agg(column_name, ' ' order by ordinal
 ```
 
 Drop tables with wildcard  
-```bash
+```sql
 tables=`psql -d world -P tuples_only=1 -c '\dt' |awk -F" " '/ne_/ {print $3","}'`
 psql -d world -c "DROP TABLE ${tables%?};";
 ```
 
 Add important columns  
-```bash
+```sql
 # add new id column
 ALTER TABLE wwf_ecoregion ADD COLUMN fid serial primary key;
 
@@ -189,68 +200,102 @@ CLUSTER geosnap USING geosnap_gid;
 ````
 
 Vacuum  
-```bash
+```sql
 VACUUM ANALYZE geosnap;
 ANALYZE geosnap;
 ```
 
 Save to external file  
-`ALTER TABLE allcountries ALTER COLUMN geom SET STORAGE EXTERNAL;`
+```sql
+ALTER TABLE allcountries ALTER COLUMN geom SET STORAGE EXTERNAL;
+```
 
 Cast with mixed column  
-`UPDATE ${city}_polygons SET levels = (SELECT CAST(other_tags->'building:levels' AS INT) WHERE other_tags->'building:levels' ~ '^[0-9]+$');`
+```sql
+UPDATE ${city}_polygons SET levels = (SELECT CAST(other_tags->'building:levels' AS INT) WHERE other_tags->'building:levels' ~ '^[0-9]+$');
+```
 
 Column to row  
-`SELECT name, (x).key, (x).value FROM (SELECT name, EACH(hstore(state2020)) AS x FROM state2020) q;`
+```sql
+SELECT name, (x).key, (x).value FROM (SELECT name, EACH(hstore(state2020)) AS x FROM state2020) q;
+```
 
 Get json keys  
-`SELECT DISTINCT jsonb_object_keys(tags) FROM highway_primary;`
+```sql
+SELECT DISTINCT jsonb_object_keys(tags) FROM highway_primary;
+```
 
 Export json keys  
-`psql -d world -c "COPY (SELECT '<p>' || row_to_json(t) || '</p>' FROM (SELECT a.nameascii, b.station_id, b.temp, b.wind_sp, b.sky FROM places a, metar b WHERE a.metar_id = b.station_id) t) TO STDOUT;" >> datastream.html;`
+```sql
+psql -d world -c "COPY (SELECT '<p>' || row_to_json(t) || '</p>' FROM (SELECT a.nameascii, b.station_id, b.temp, b.wind_sp, b.sky FROM places a, metar b WHERE a.metar_id = b.station_id) t) TO STDOUT;" >> datastream.html;
+```
 
 Add hstore  
-`ALTER TABLE ${city}_polygons ALTER COLUMN other_tags TYPE hstore USING other_tags::hstore;`
+```sql
+ALTER TABLE ${city}_polygons ALTER COLUMN other_tags TYPE hstore USING other_tags::hstore;
+```
 
 Convert hstore to text  
-`psql -d us -c "ALTER TABLE points_${geoid} ALTER COLUMN other_tags TYPE TEXT;`
+```sql
+psql -d us -c "ALTER TABLE points_${geoid} ALTER COLUMN other_tags TYPE TEXT;
+```
 
 Get hstore keys  
-`SELECT DISTINCT skeys(hstore(tags)) FROM planet_osm_polygon;`
+```sql
+SELECT DISTINCT skeys(hstore(tags)) FROM planet_osm_polygon;
+```
 
 Select hstore keys  
-`UPDATE planet_osm_polygon SET levels = (SELECT tags->'building:levels');`
+```sql
+UPDATE planet_osm_polygon SET levels = (SELECT tags->'building:levels');
 
-`SELECT other_tags FROM multipolygons WHERE other_tags LIKE '%construction%';`
+SELECT other_tags FROM multipolygons WHERE other_tags LIKE '%construction%';
+```
 
 Select boolean type  
-`SELECT b.name, COUNT(b.name) FROM points_us a, acs_2019_5yr_place b WHERE ST_Intersects(a.wkb_geometry, b."Shape") AND ((a.other_tags->'%amenity%')::boolean) GROUP BY b.name ORDER BY COUNT(b.name);`
+```sql
+SELECT b.name, COUNT(b.name) FROM points_us a, acs_2019_5yr_place b WHERE ST_Intersects(a.wkb_geometry, b."Shape") AND ((a.other_tags->'%amenity%')::boolean) GROUP BY b.name ORDER BY COUNT(b.name);
+```
 
 Random select  
-`CREATE TABLE contour100m_points1000 AS SELECT * FROM contour100m_points TABLESAMPLE SYSTEM ((1000 * 100) / 5100000.0);`
+```sql
+CREATE TABLE contour100m_points1000 AS SELECT * FROM contour100m_points TABLESAMPLE SYSTEM ((1000 * 100) / 5100000.0);
 
-`SELECT * FROM contour100m_raw WHERE fid IN (SELECT fid FROM contour100m_raw ORDER BY RANDOM() LIMIT 100000);`
+SELECT * FROM contour100m_raw WHERE fid IN (SELECT fid FROM contour100m_raw ORDER BY RANDOM() LIMIT 100000);
+```
 
 Distinct select  
-`SELECT DISTINCT ON (taxonid) taxonid, vernacularname FROM gbif_vernacular WHERE language IN ('en') ORDER BY taxonid, vernacularname;`
+```sql
+SELECT DISTINCT ON (taxonid) taxonid, vernacularname FROM gbif_vernacular WHERE language IN ('en') ORDER BY taxonid, vernacularname;
+```
 
 Create table from select  
-`CREATE TABLE bangkok_toronto_points_neighbourhoods AS SELECT * FROM bangkok_toronto_points WHERE place IN ('neighbourhood');`
+```sql
+CREATE TABLE bangkok_toronto_points_neighbourhoods AS SELECT * FROM bangkok_toronto_points WHERE place IN ('neighbourhood');
+```
 
 Replace string  
-`UPDATE <table> SET <field> = replace(<field>, 'cat', 'dog');`
+```sql
+UPDATE <table> SET <field> = replace(<field>, 'cat', 'dog');
+```
 
 Concat strings  
-`SELECT CONCAT(b.id,';',b.station,';',b.latitude,';',b.longitude,';',b.elevation) FROM ghcn b WHERE a.fid = b.contour100m_id;`
+```sql
+SELECT CONCAT(b.id,';',b.station,';',b.latitude,';',b.longitude,';',b.elevation) FROM ghcn b WHERE a.fid = b.contour100m_id;
+```
 
 Split part  
-`UPDATE countryinfo a SET language1 = b.languagename FROM languagecodes b WHERE SPLIT_PART(regexp_replace(a.languages, '-'||a.iso, '', 'g'), ',', 1) = b.iso_639_1 OR SPLIT_PART(a.languages, ',', 1) = b.iso_639_3;`
+```sql
+UPDATE countryinfo a SET language1 = b.languagename FROM languagecodes b WHERE SPLIT_PART(regexp_replace(a.languages, '-'||a.iso, '', 'g'), ',', 1) = b.iso_639_1 OR SPLIT_PART(a.languages, ',', 1) = b.iso_639_3;
+```
 
 Split + replace  
-`SELECT wx, REGEXP_REPLACE(REGEXP_REPLACE(wx,'(\w\w)','\1 ','g'),' +',' ','g') FROM metar;`
+```sql
+SELECT wx, REGEXP_REPLACE(REGEXP_REPLACE(wx,'(\w\w)','\1 ','g'),' +',' ','g') FROM metar;
+```
 
 Count  
-```bash
+```sql
 # count keys (using each)
 psql -d us -c "SELECT key, count(key) FROM (SELECT (each(other_tags)).key FROM points_us WHERE name IS NOT NULL) AS stat GROUP BY key;"
 
@@ -259,27 +304,39 @@ SELECT value, count(value) FROM (SELECT svals(slice(other_tags, ARRAY['cuisine']
 ```
 
 Group and count  
-`SELECT featurecode,COUNT(featurecode) FROM superior_lines WHERE featureclass IN ('T') GROUP BY featurecode ORDER BY COUNT(featurecode) ASC;`
+```sql
+SELECT featurecode,COUNT(featurecode) FROM superior_lines WHERE featureclass IN ('T') GROUP BY featurecode ORDER BY COUNT(featurecode) ASC;
+```
 
 Rank by variable  
-`psql -d us -c "SELECT name, dem, RANK() OVER (PARTITION BY admin1 ORDER BY dem DESC) FROM geonames_us;"`
+```sql
+psql -d us -c "SELECT name, dem, RANK() OVER (PARTITION BY admin1 ORDER BY dem DESC) FROM geonames_us;"
+```
 
 Aggregate  
-`CREATE TABLE vernacularname_agg AS SELECT taxonid,string_agg(vernacularname,';') FROM vernacularname GROUP BY taxonid;`
+```sql
+CREATE TABLE vernacularname_agg AS SELECT taxonid,string_agg(vernacularname,';') FROM vernacularname GROUP BY taxonid;
+```
 
 Select many columns without geom  
-`$(echo $(psql -qAtX -d world -c '\d basinatlas_v10_lev01' | grep -v "shape" | sed -e 's/^/a./g' -e 's/|.*//g' | paste -sd','))`
+```sql
+$(echo $(psql -qAtX -d world -c '\d basinatlas_v10_lev01' | grep -v "shape" | sed -e 's/^/a./g' -e 's/|.*//g' | paste -sd','))
+```
 
 Print in column format  
-`psql -x -d us -c "SELECT * FROM ne_10m_admin_1_states_provinces_lakes WHERE name = 'Alabama';"`
+```sql
+psql -x -d us -c "SELECT * FROM ne_10m_admin_1_states_provinces_lakes WHERE name = 'Alabama';"
+```
 
 ## Spatial operations
 
 Print available epsg/srid  
-`SELECT srid, proj4text FROM spatial_ref_sys;`
+```sql
+SELECT srid, proj4text FROM spatial_ref_sys;
+```
 
 Add missing epsg/srid (see spatialreference.org)  
-```bash
+```sql
 # eqdc
 INSERT into spatial_ref_sys (srid, auth_name, auth_srid, proj4text, srtext) values ( 953027, 'esri', 53027, '+proj=eqdc +lat_0=0 +lon_0=0 +lat_1=60 +lat_2=60 +x_0=0 +y_0=0 +a=6371000 +b=6371000 +units=m +no_defs ', 'PROJCS["Sphere_Equidistant_Conic",GEOGCS["GCS_Sphere",DATUM["Not_specified_based_on_Authalic_Sphere",SPHEROID["Sphere",6371000,0]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]],PROJECTION["Equidistant_Conic"],PARAMETER["False_Easting",0],PARAMETER["False_Northing",0],PARAMETER["Central_Meridian",0],PARAMETER["Standard_Parallel_1",60],PARAMETER["Standard_Parallel_2",60],PARAMETER["Latitude_Of_Origin",0],UNIT["Meter",1],AUTHORITY["EPSG","53027"]]');
 
@@ -291,18 +348,24 @@ INSERT into spatial_ref_sys (srid, auth_name, auth_srid, proj4text, srtext) valu
 ```
 
 Create geometry column  
-`ALTER TABLE contour10m_dissolve ADD COLUMN geom TYPE GEOMETRY(MULTILINESTRING,4326);`
+```sql
+ALTER TABLE contour10m_dissolve ADD COLUMN geom TYPE GEOMETRY(MULTILINESTRING,4326);
+```
 
 Change geometry type  
-`ALTER TABLE milan_point ALTER COLUMN way type geometry(Polygon, 4326);`
+```sql
+ALTER TABLE milan_point ALTER COLUMN way type geometry(Polygon, 4326);
 
-`ALTER TABLE limw_points ALTER TABLE contour100m_id TYPE INT USING contour100m_id::integer;`
+ALTER TABLE limw_points ALTER TABLE contour100m_id TYPE INT USING contour100m_id::integer;
+```
 
 Extract geometry collection  
-`UPDATE places_voronoi set geom = ST_CollectionExtract(ST_VoronoiPolygons(b.geom),3) FROM places b;`
+```sql
+UPDATE places_voronoi set geom = ST_CollectionExtract(ST_VoronoiPolygons(b.geom),3) FROM places b;
+```
 
 Reproject  
-```bash
+```sql
 # reproject
 CREATE TABLE ne_10m_admin_0_countries_lakes_3857 AS SELECT * FROM ne_10m_admin_0_countries_lakes;
 ALTER TABLE ne_10m_admin_0_countries_lakes_3857 ALTER COLUMN geom type geometry;
@@ -321,73 +384,98 @@ UPDATE ne_10m_admin_0_countries_lakes_3857 SET geom = ST_Intersection(ST_MakeEnv
 ```
 
 Update SRID  
-`SELECT UpdateGeometrySRID('hydroriver_simple_3857', 'shape', 3857);`
+```sql
+SELECT UpdateGeometrySRID('hydroriver_simple_3857', 'shape', 3857);
+```
 
 Translate  
-```bash
+```sql
 ALTER TABLE metar_20180320_183305 ADD COLUMN translated geometry(Point,4326);
 UPDATE metar_20180320_183305 SET translated=ST_SetSrid(ST_Translate(geom,0.1,0),4326);
 ```
 
 Make valid  
-`UPDATE polygon_voronoi SET way = ST_MakeValid(way) WHERE NOT ST_IsValid(way);`
+```sql
+UPDATE polygon_voronoi SET way = ST_MakeValid(way) WHERE NOT ST_IsValid(way);
+```
 
 Get angle (degrees)  
-`SELECT ST_Azimuth(ST_Startpoint(way), ST_Endpoint(way))/(2*pi())*360 FROM planet_osm_line;`
+```sql
+SELECT ST_Azimuth(ST_Startpoint(way), ST_Endpoint(way))/(2*pi())*360 FROM planet_osm_line;
+```
 
 Get road angle (degrees)  
-`UPDATE city_points a SET road_angle = ST_Azimuth(a.geom,ST_ClosestPoint(a.geom,b.geom))/(2*pi())*360 FROM city_roads b;`
+```sql
+UPDATE city_points a SET road_angle = ST_Azimuth(a.geom,ST_ClosestPoint(a.geom,b.geom))/(2*pi())*360 FROM city_roads b;
+```
 
 Label angle epsg:4326 -> epsg:53209  
-```bash
+```sql
 ALTER TABLE countries110m ADD COLUMN angle53029 int;
 UPDATE countries110m SET angle53029 = ST_Azimuth(ST_Transform(ST_Centroid(geom),'EPSG:4326','+proj=vandg +lon_0=0 +x_0=0 +y_0=0 +R_A +a=6371000 +b=6371000 +units=m no_defs'),ST_Transform(ST_Translate(ST_Centroid(geom),0.1,0),'EPSG:4326','+proj=vandg +lon_0=0 +x_0=0 +y_0=0 +R_A +a=6371000 +b=6371000 +units=m no_defs'))/(2*pi())*360;
 UPDATE marine110m SET angle53029 = ST_Azimuth(ST_Transform(ST_Centroid(ST_Buffer(geom,0)),'EPSG:4326','+proj=vandg +lon_0=0 +x_0=0 +y_0=0 +R_A +a=6371000 +b=6371000 +units=m no_defs'),ST_Transform(ST_Intersection(ST_MakeEnvelope(-175, -85, 175, 85, 4326),ST_Translate(ST_Centroid(ST_Buffer(geom,0)),0.1,0)),'EPSG:4326','+proj=vandg +lon_0=0 +x_0=0 +y_0=0 +R_A +a=6371000 +b=6371000 +units=m no_defs'))/(2*pi())*360;
 ```
 
-Snap polygon to grid  
-```bash
+Snap  
+```sql
+# polygon to grid
 CREATE TABLE countries_snap AS SELECT * FROM countries10m;
 ALTER TABLE countries_snap ALTER COLUMN geom type geometry;
 UPDATE countries_snap a SET geom = ST_Buffer(ST_SnapToGrid(b.geom,1),0) FROM countries10m b WHERE a.fid = b.fid;
+
+# line to grid
+UPDATE places_snap02 SET geom = ST_SnapToGrid(ST_Segmentize(geom,0.2),0.2);
+
+# points to layer
+CREATE TABLE places_snap02 AS SELECT a.fid, a.name, a.adm0name, ST_Snap(a.geom, b.geom, 0.2) geom FROM places a, points02 b;
 ```
 
-Snap line to grid  
-`UPDATE places_snap02 SET geom = ST_SnapToGrid(ST_Segmentize(geom,0.2),0.2);`
-
-Snap to layer  
-`CREATE TABLE places_snap02 AS SELECT a.fid, a.name, a.adm0name, ST_Snap(a.geom, b.geom, 0.2) geom FROM places a, points02 b;`
-
 Simplify  
-`CREATE TABLE subunits_simple01 AS SELECT name, ST_SimplifyPreserveTopology(geom, 0.1) AS geom FROM subunits;`
+```sql
+CREATE TABLE subunits_simple01 AS SELECT name, ST_SimplifyPreserveTopology(geom, 0.1) AS geom FROM subunits;
+```
 
 Smooth label geom  
-`UPDATE countries_labels_3857 a SET geom = ST_Buffer(ST_Buffer(b.geom,10000),-10000) FROM countries_3857 b WHERE a.fid = b.fid;`
+```sql
+UPDATE countries_labels_3857 a SET geom = ST_Buffer(ST_Buffer(b.geom,10000),-10000) FROM countries_3857 b WHERE a.fid = b.fid;
+```
 
 Dump points  
-`CREATE TABLE contour100m_points AS SELECT elev, (ST_DumpPoints(geom)).geom::geometry(POINTZ,4326) AS geom FROM contour100m GROUP BY elev, geom;`
+```sql
+CREATE TABLE contour100m_points AS SELECT elev, (ST_DumpPoints(geom)).geom::geometry(POINTZ,4326) AS geom FROM contour100m GROUP BY elev, geom;
+```
 
 Interpolate points  
-`CREATE TABLE contour10m_points1 AS WITH lines AS (SELECT elev, (ST_Dump(ST_Segmentize(geom,1))).geom::geometry(LINESTRING,4326) AS geom FROM contour10m_dissolve GROUP BY elev, geom) SELECT elev, ST_LineInterpolatePoint(geom,0.5)::GEOMETRY(POINT,4326) geom FROM lines;`
+```sql
+CREATE TABLE contour10m_points1 AS WITH lines AS (SELECT elev, (ST_Dump(ST_Segmentize(geom,1))).geom::geometry(LINESTRING,4326) AS geom FROM contour10m_dissolve GROUP BY elev, geom) SELECT elev, ST_LineInterpolatePoint(geom,0.5)::GEOMETRY(POINT,4326) geom FROM lines;
+```
 
 Get centroid  
-`SELECT name, ST_Centroid(ST_Multi(ST_Union(l.way))) AS singlegeom FROM planet_osm_line AS l WHERE name IS NOT NULL AND highway IN ('primary','secondary') GROUP BY name;`
+```sql
+SELECT name, ST_Centroid(ST_Multi(ST_Union(l.way))) AS singlegeom FROM planet_osm_line AS l WHERE name IS NOT NULL AND highway IN ('primary','secondary') GROUP BY name;
 
-`CREATE TABLE contour20m_points AS SELECT elev, (ST_Centroid(ST_SimplifyPreserveTopology(geom,0.1)))::geometry(POINT,4326) AS geom FROM contour20m_43200 GROUP BY elev, geom;`
+CREATE TABLE contour20m_points AS SELECT elev, (ST_Centroid(ST_SimplifyPreserveTopology(geom,0.1)))::geometry(POINT,4326) AS geom FROM contour20m_43200 GROUP BY elev, geom;
+```
 
 Get geometric median  
-`CREATE TABLE superior_medians AS SELECT featurecode, COUNT(featurecode),  ST_GeometricMedian(ST_Collect(geom)) AS geom FROM superior GROUP BY featurecode;`
+```sql
+CREATE TABLE superior_medians AS SELECT featurecode, COUNT(featurecode),  ST_GeometricMedian(ST_Collect(geom)) AS geom FROM superior GROUP BY featurecode;
+```
 
 Cluster  
-`UPDATE nmnh_italy SET cid = clusterid FROM (SELECT fid, ST_ClusterDBSCAN(geom,1,1) OVER () AS clusterid FROM nmnh_italy) cluster WHERE cluster.fid = nmnh_italy.fid;`
+```sql
+UPDATE nmnh_italy SET cid = clusterid FROM (SELECT fid, ST_ClusterDBSCAN(geom,1,1) OVER () AS clusterid FROM nmnh_italy) cluster WHERE cluster.fid = nmnh_italy.fid;
 
-`UPDATE allcountries a SET clusterid = b.cid FROM (SELECT ST_ClusterDBSCAN(geom, eps:=2, minpoints:=2) OVER (PARTITION BY fcode_en_name) AS cid, fid FROM allcountries) AS b WHERE a.fid = b.fid;`
+UPDATE allcountries a SET clusterid = b.cid FROM (SELECT ST_ClusterDBSCAN(geom, eps:=2, minpoints:=2) OVER (PARTITION BY fcode_en_name) AS cid, fid FROM allcountries) AS b WHERE a.fid = b.fid;
+```
 
 Medial axis  
-`SELECT ST_ApproximateMedialAxis(geom) FROM countries;`
+```sql
+SELECT ST_ApproximateMedialAxis(geom) FROM countries;
+```
 
 Buffers  
-```bash
+```sql
 # simple
 UPDATE places_voronoi_buffer1 SET geom = st_buffer(geom, 1, 'endcap=square join=miter');
 
@@ -399,30 +487,35 @@ CREATE TABLE riveratlas_v10_simple1_buffer_1000 AS WITH buffer AS (SELECT ST_Buf
 ```
 
 Dissolve/union  
-`CREATE TABLE limw_dissolve AS SELECT xx_name, ST_CollectionExtract(ST_Union(geom),3) geom FROM limw GROUP BY xx_name;`
+```sql
+CREATE TABLE limw_dissolve AS SELECT xx_name, ST_CollectionExtract(ST_Union(geom),3) geom FROM limw GROUP BY xx_name;
 
-`CREATE TABLE contour100m_dissolve AS SELECT (ST_Dump(ST_Union(geom))).geom::GEOMETRY(LINESTRING,4326) geom from contour100m;`
+CREATE TABLE contour100m_dissolve AS SELECT (ST_Dump(ST_Union(geom))).geom::GEOMETRY(LINESTRING,4326) geom from contour100m;
 
-`UPDATE grid04_countries a SET geom = (SELECT ST_Multi(ST_Union(b.geom))::GEOMETRY(MULTIPOLYGON, 4326) FROM grid04 b WHERE ST_Intersects(a.geom, b.geom));`
+UPDATE grid04_countries a SET geom = (SELECT ST_Multi(ST_Union(b.geom))::GEOMETRY(MULTIPOLYGON, 4326) FROM grid04 b WHERE ST_Intersects(a.geom, b.geom));
 
-`CREATE TABLE wwf_ecoregion AS SELECT eco_name, realm_name, biome_name, ST_Union(geom) AS geom FROM wwf_ecoregion_test GROUP BY eco_name, realm_name, biome_name;`
+CREATE TABLE wwf_ecoregion AS SELECT eco_name, realm_name, biome_name, ST_Union(geom) AS geom FROM wwf_ecoregion_test GROUP BY eco_name, realm_name, biome_name;
+```
 
 Union all  
-```bash
+```sql
 ls *.osm.pbf | grep -v -e 'latest' -e 'Barcelona' -e 'Dublin' -e 'Krakow' | sed -e 's/^/SELECT name, highway, railway, other_tags, wkb_geometry FROM /g' -e 's/.osm.pbf/_lines UNION ALL/g' | xargs | sed -e "s/^/psql -d osm -c 'CREATE TABLE city_lines AS /" -e "s/ UNION ALL$/;'/g"
 psql -d osm -c "ALTER TABLE city_lines ADD COLUMN fid serial PRIMARY KEY;"
 psql -d osm -c "CREATE INDEX city_lines_gid ON city_lines USING GIST (wkb_geometry);"
 ```
 
 Difference  
-```bash
+```sql
 # subtract river buffers from basin
 CREATE TABLE basinatlas_v10_lev01_rivers AS SELECT * FROM basinatlas_v10_lev01;
 UPDATE basinatlas_v10_lev01_rivers a SET shape = ST_Difference(a.shape,b.geom) FROM riveratlas_v10_simple1_buffer b;
+
+# subtract rivers from grid
+CREATE TABLE grid02_rivers AS SELECT a.dem_mean, a.aspect_mean, a.subunits, a.states, a.countries, ST_DIfference(a.geom, b.geom) geom FROM grid02 a, riveratlas_v10_simple1_buffer_500_dissolve b;
 ```
 
 Aggregate by geom  
-```bash
+```sql
 # create table
 CREATE TABLE places_label_italy AS SELECT STRING_AGG(name, ',' ORDER BY ST_X(geom)) AS names, ST_SetSRID(ST_MakePoint(ST_XMin(ST_Multi(ST_Union(geom))), ST_Y(geom)), 4326)::geometry(POINT, 4326) AS geom FROM places_snap02 WHERE adm0name IN ('Italy') GROUP BY ST_Y(geom);
 
@@ -431,7 +524,7 @@ UPDATE grid02 a SET places = (SELECT string_agg(b.name, ',' ORDER BY b.scalerank
 ```
 
 Find nearest neighbor  
-```bash
+```sql
 UPDATE gebco_contour1 a SET geom = (SELECT b.geom FROM contour10m_segment1 b WHERE ST_DWithin(a.geom,b.geom,1) ORDER BY a.geom <-> b.geom LIMIT 1);
 
 # within extent
@@ -459,7 +552,7 @@ CREATE TABLE contour10m_classt AS SELECT b.fcode_en_name, a.geom FROM contour10m
 ```
 
 Make contours  
-```bash
+```sql
 CREATE TABLE wwf_ecoregion_split4 AS SELECT * FROM wwf_ecoregion;
 ALTER TABLE wwf_ecoregion_split4 ALTER COLUMN geom TYPE geometry;
 UPDATE wwf_ecoregion_split4 a SET geom = (SELECT b.geom FROM contour100m_split4 b WHERE ST_DWithin(a.geom, b.geom, 1) ORDER BY a.geom <-> b.geom LIMIT 1);
@@ -467,25 +560,33 @@ ALTER TABLE wwf_ecoregion_split4 ALTER COLUMN geom TYPE geometry(MULTILINESTRING
 ```
 
 Intersection (clipping)  
-`CREATE TABLE contour10m_superior AS SELECT ST_Intersection(a.geom, b.geom) geom FROM contour10m a, envelope_superior b WHERE ST_Intersects(a.geom, b.geom);`
+```sql
+CREATE TABLE contour10m_superior AS SELECT ST_Intersection(a.geom, b.geom) geom FROM contour10m a, envelope_superior b WHERE ST_Intersects(a.geom, b.geom);
 
-`CREATE TABLE ne_10m_roads_countries AS SELECT a.fid AS fid_road, b.fid AS fid_country, ST_Intersection(a.geom, b.geom) AS geom FROM ne_10m_roads a, ne_10m_admin_0_countries b WHERE ST_Intersects(a.geom, b.geom);`
+CREATE TABLE ne_10m_roads_countries AS SELECT a.fid AS fid_road, b.fid AS fid_country, ST_Intersection(a.geom, b.geom) AS geom FROM ne_10m_roads a, ne_10m_admin_0_countries b WHERE ST_Intersects(a.geom, b.geom);
+```
 
 Polygon clipping  
-`CREATE TABLE subregions_3857 AS SELECT subregion, ST_Intersection(geom, ST_MakeEnvelope(-179, -89, 179, 89, 4326)) geom FROM subregions;`
+```sql
+CREATE TABLE subregions_3857 AS SELECT subregion, ST_Intersection(geom, ST_MakeEnvelope(-179, -89, 179, 89, 4326)) geom FROM subregions;
+```
 
 Intersects  
-`CREATE TABLE test2 AS SELECT a.id, b.osm_id, a.geom FROM grid100 AS a, planet_osm_polygon AS b WHERE ST_Intersects(a.geom, b.way);`
+```sql
+CREATE TABLE test2 AS SELECT a.id, b.osm_id, a.geom FROM grid100 AS a, planet_osm_polygon AS b WHERE ST_Intersects(a.geom, b.way);
 
-`UPDATE grid100 a SET line_id = b.osm_id FROM planet_osm_line b WHERE ST_Intersects(a.geom,b.way) AND b.highway IN ('motorway','primary','secondary','tertiary','residential');`
+UPDATE grid100 a SET line_id = b.osm_id FROM planet_osm_line b WHERE ST_Intersects(a.geom,b.way) AND b.highway IN ('motorway','primary','secondary','tertiary','residential');
 
-`SELECT count(*), c.name FROM countries c JOIN places p ON ST_Intersects(c.geom, p.geom) GROUP BY c.name;`
+SELECT count(*), c.name FROM countries c JOIN places p ON ST_Intersects(c.geom, p.geom) GROUP BY c.name;
+```
 
 Find area  
-`WITH intersection_area AS (SELECT ST_Intersection(a.geom, b.geom) AS geom, ST_Area(ST_Intersection(a.geom, b.geom)) AS area FROM your_polygon_table a, your_polygon_table b WHERE a.id <> b.id AND ST_Intersects(a.geom, b.geom)) SELECT a.id AS polygon_id_1, b`
+```sql
+WITH intersection_area AS (SELECT ST_Intersection(a.geom, b.geom) AS geom, ST_Area(ST_Intersection(a.geom, b.geom)) AS area FROM your_polygon_table a, your_polygon_table b WHERE a.id <> b.id AND ST_Intersects(a.geom, b.geom)) SELECT a.id AS polygon_id_1, b
+```
 
 Sample raster  
-```bash
+```sql
 # at point
 UPDATE places a SET dem = ST_Value(r.rast, 1, a.geom) FROM topo15_43200 r WHERE ST_Intersects(r.rast,a.geom);
 
@@ -494,7 +595,7 @@ UPDATE basinatlas_v10_lev${a} a SET dem_mean = (ST_SummaryStats(rast)).mean FROM
 ```
 
 Make extent/envelope  
-```bash
+```sql
 # from geometry
 SELECT ST_Extent(way) FROM planet_osm_polygon;
 
@@ -503,7 +604,7 @@ CREATE TABLE worldatlas_extent_polygons AS SELECT longitude, latitude, x_min, x_
 ```
 
 Make grid  
-```bash
+```sql
 # with ST_SquareGrid
 CREATE TABLE grid02 AS SELECT (ST_SquareGrid(0.2, ST_SetSRID(ST_Envelope('POLYGON((-180 -90, -180 90, 180 90, 180 -90, -180 -90))'::geometry), 4326))).geom::(POLYGON,4326) geom;
 # bonus: add raster stats
@@ -518,7 +619,7 @@ CREATE TABLE grid0001 AS SELECT (ST_PixelAsPolygons(ST_AddBand(ST_MakeEmptyRaste
 ```
 
 Make triangles  
-```bash
+```sql
 # voronoi
 CREATE TABLE basinatlas_v10_lev06_voronoi AS WITH a AS (SELECT (ST_Dump(ST_VoronoiPolygons(ST_Collect(ST_Centroid(shape))))).geom::GEOMETRY(POLYGON,4326) shape FROM basinatlas_v10_lev06) SELECT objectid,up_area,dem_mean,aspect_mean,a.shape FROM a, basinatlas_v10_lev06 b WHERE ST_Intersects(ST_Centroid(a.shape), b.shape);
 
@@ -527,7 +628,7 @@ CREATE TABLE places_delaunay AS SELECT (ST_Dump(ST_DelaunayTriangles(ST_Union(ge
 ```
 
 Polygonize  
-```bash
+```sql
 # contours
 CREATE TABLE contour100m_poly AS SELECT fid, elev, (ST_Dump(ST_MakePolygon(geom))).geom::geometry(POLYGON,4326) AS geom FROM contour100m WHERE ST_IsClosed(geom);
 
@@ -539,25 +640,31 @@ CREATE TABLE thailand_highway_polygons AS SELECT (ST_Dump(ST_CollectionExtract(S
 ```
 
 Line to geometry  
-`CREATE TABLE labels_italy AS WITH mybuffer AS (SELECT ST_ExteriorRing(ST_Buffer(ST_Centroid(ST_Collect(geom)), 5, 24)) AS geom FROM countries WHERE name IN ('Italy')), myline AS (SELECT a.name, a.scalerank, ST_MakeLine(a.geom, ST_ClosestPoint(b.geom, a.geom))::GEOMETRY(LINESTRING, 4326) AS geom FROM places_snap02 a, mybuffer b WHERE a.adm0name IN ('Italy')) SELECT name, scalerank,  ST_MakeLine(ST_StartPoint(geom), (ST_Project(ST_StartPoint(geom), ST_Distance(ST_StartPoint(geom)::GEOGRAPHY, ST_EndPoint(geom)::GEOGRAPHY)*2, ST_Azimuth(ST_StartPoint(geom), ST_EndPoint(geom))))::GEOMETRY(POINT, 4326))::GEOMETRY(LINESTRING, 4326) FROM myline;`
+```sql
+CREATE TABLE labels_italy AS WITH mybuffer AS (SELECT ST_ExteriorRing(ST_Buffer(ST_Centroid(ST_Collect(geom)), 5, 24)) AS geom FROM countries WHERE name IN ('Italy')), myline AS (SELECT a.name, a.scalerank, ST_MakeLine(a.geom, ST_ClosestPoint(b.geom, a.geom))::GEOMETRY(LINESTRING, 4326) AS geom FROM places_snap02 a, mybuffer b WHERE a.adm0name IN ('Italy')) SELECT name, scalerank,  ST_MakeLine(ST_StartPoint(geom), (ST_Project(ST_StartPoint(geom), ST_Distance(ST_StartPoint(geom)::GEOGRAPHY, ST_EndPoint(geom)::GEOGRAPHY)*2, ST_Azimuth(ST_StartPoint(geom), ST_EndPoint(geom))))::GEOMETRY(POINT, 4326))::GEOMETRY(LINESTRING, 4326) FROM myline;
+```
 
 Line to circle buffer  
-`CREATE TABLE places_labels AS WITH mybuffer AS (SELECT adm0name, ST_ExteriorRing(ST_Buffer(ST_Centroid(ST_Collect(geom)), 10, 24))::GEOMETRY(LINESTRING,4326) AS geom FROM places GROUP BY adm0name) SELECT a.fid, a.name, a.scalerank, a.adm0name, ST_MakeLine(a.geom, ST_ClosestPoint(b.geom, a.geom))::GEOMETRY(LINESTRING, 4326) AS geom FROM places a, mybuffer b WHERE a.adm0name = b.adm0name;`
+```sql
+CREATE TABLE places_labels AS WITH mybuffer AS (SELECT adm0name, ST_ExteriorRing(ST_Buffer(ST_Centroid(ST_Collect(geom)), 10, 24))::GEOMETRY(LINESTRING,4326) AS geom FROM places GROUP BY adm0name) SELECT a.fid, a.name, a.scalerank, a.adm0name, ST_MakeLine(a.geom, ST_ClosestPoint(b.geom, a.geom))::GEOMETRY(LINESTRING, 4326) AS geom FROM places a, mybuffer b WHERE a.adm0name = b.adm0name;
+```
 
 Fill proj definition with region centroids  
-```bash
+```sql
 psql -d world -c "copy (select subregion, round(st_x(geom)), round(st_y(geom)) from (select subregion, st_centroid(st_union(geom)) geom from ne_10m_admin_0_countries_lakes group by subregion) b) to stdout DELIMITER E'\t';" | while IFS=$'\t' read -a array; do echo "WHEN attribute(@atlas_feature,'subregion') IN ('${array[0]}') THEN 'PROJ:+proj=ortho +lat_0=${array[2]} +lon_0=${array[1]} +ellps=sphere'"; done
 ```
 
 Text as polygons (using width_bucket to scale letters)  
-`DROP TABLE IF EXISTS ne_10m_admin_0_map_subunits_letters; CREATE TABLE ne_10m_admin_0_map_subunits_letters AS SELECT name, type, ST_SetSRID(ST_Translate(ST_Scale(ST_Letters(upper(name_en)), width_bucket(area,0,300,5)*0.01, width_bucket(area,0,300,5)*0.01), ST_XMIN(geom) + ((ST_X(ST_Centroid(geom))-ST_XMIN(geom))/2), ST_Y(ST_Centroid(geom))), 4326) geom FROM ne_10m_admin_0_map_subunits;`
+```sql
+DROP TABLE IF EXISTS ne_10m_admin_0_map_subunits_letters; CREATE TABLE ne_10m_admin_0_map_subunits_letters AS SELECT name, type, ST_SetSRID(ST_Translate(ST_Scale(ST_Letters(upper(name_en)), width_bucket(area,0,300,5)*0.01, width_bucket(area,0,300,5)*0.01), ST_XMIN(geom) + ((ST_X(ST_Centroid(geom))-ST_XMIN(geom))/2), ST_Y(ST_Centroid(geom))), 4326) geom FROM ne_10m_admin_0_map_subunits;
+```
 
 ## Dataset examples
 
 ### ASEAN
 
 Import files after cleaning!  
-```bash
+```sql
 # import basic indicators
 CREATE TABLE asean_basic_indicators(country varchar, area numeric, pop numeric, pop_rate numeric, pop_density numeric, gdp numeric, gdp_rate numeric, gdp_capita numeric, exports numeric, imports numeric, total_trade numeric, fdi numeric, visitor_arrivals numeric);
 COPY asean_basic_indicators FROM '/home/steve/maps/asean/asean_basic_indicators_2022.tsv' DELIMITER E'\t' CSV HEADER;
@@ -568,7 +675,7 @@ COPY asean_macro_indicators FROM '/home/steve/maps/asean/asean_macro_indicators_
 ```
 
 Export json for web  
-```bash
+```sql
 # export all indicators
 psql -d world -t -A -c "SELECT jsonb_agg(row_to_json(asean_indicators)) FROM (SELECT a.country, area, RANK() OVER (ORDER BY area DESC) area_rank, (pop*1000)::int pop, RANK() OVER (ORDER BY pop DESC) pop_rank, pop_rate, RANK() OVER (ORDER BY pop_rate DESC) pop_rate_rank, pop_density, RANK() OVER (ORDER BY pop_density DESC) pop_density_rank, gdp, RANK() OVER (ORDER BY gdp DESC) gdp_rank, gdp_rate, RANK() OVER (ORDER BY gdp_rate DESC) gdp_rate_rank, gdp_capita, RANK() OVER (ORDER BY gdp_capita DESC) gdp_capita_rank, exports, RANK() OVER (ORDER BY exports DESC) exports_rank, imports, RANK() OVER (ORDER BY imports DESC) imports_rank, total_trade, RANK() OVER (ORDER BY total_trade DESC) total_trade_rank, fdi, RANK() OVER (ORDER BY fdi DESC) fdi_rank, visitor_arrivals, RANK() OVER (ORDER BY visitor_arrivals DESC) visitor_arrivals_rank, inflation_rate, RANK() OVER (ORDER BY inflation_rate DESC) inflation_rate_rank, exchange_rate_us, RANK() OVER (ORDER BY exchange_rate_us DESC) exchange_rate_us_rank, labour_rate, RANK() OVER (ORDER BY labour_rate DESC) labour_rate_rank, unemployment_rate, RANK() OVER (ORDER BY unemployment_rate DESC) unemployment_rate_rank, exports_to_gdp, RANK() OVER (ORDER BY exports_to_gdp DESC) exports_to_gdp_rank, imports_to_gdp, RANK() OVER (ORDER BY imports_to_gdp DESC) imports_to_gdp_rank, total_trade_to_gdp, RANK() OVER (ORDER BY total_trade_to_gdp DESC) total_trade_to_gdp_rank, exports_value_rate, RANK() OVER (ORDER BY exports_value_rate DESC) exports_value_rate_rank, imports_value_rate, RANK() OVER (ORDER BY imports_value_rate DESC) imports_value_rate_rank, total_trade_value_rate, RANK() OVER (ORDER BY total_trade_value_rate DESC) total_trade_value_rate_rank, fdi_change, RANK() OVER (ORDER BY fdi_change DESC) fdi_change_rank, fdi_change_rate, RANK() OVER (ORDER BY fdi_change_rate DESC) fdi_change_rate_rank FROM asean_basic_indicators a, asean_macro_indicators b WHERE a.country = b.country ORDER BY country) AS asean_indicators;" > ~/test/json/asean_indicators.json
 ```
@@ -576,21 +683,21 @@ psql -d world -t -A -c "SELECT jsonb_agg(row_to_json(asean_indicators)) FROM (SE
 ### CIA Factbook
 
 Export json for web  
-```bash
+```sql
 psql -d world -t -A -c "SELECT jsonb_agg(row_to_json(factbook)) FROM factbook WHERE code IN ('BX','CB','ID','LA','MY','BM','RP','SN','TH','VM');" > ~/test/json/asean_factbook.json
 ```
 
 ### GBIF
 
 Import vernacularname  
-```bash
+```sql
 CREATE TABLE vernacularname(taxonid int, vernacularname varchar, language varchar, country varchar, countryCode varchar, sex varchar, lifestage varchar, source varchar);
 COPY vernacularname FROM 'VernacularName.tsv' DELIMITER E'\t' CSV HEADER;
 CREATE TABLE vernacularname_agg AS SELECT taxonid,string_agg(vernacularname,';') FROM vernacularname GROUP BY taxonid;
 ```
 
 Import distribution  
-```bash
+```sql
 sed -i 's/"//g' Distribution.tsv
 CREATE TABLE distribution(
 taxonid int, locationid text, locality text, country text, countrycode text, locationremarks text, establishmentmeans text, lifestage text, occurrencestatus text, threatstatus text, source text);
@@ -598,7 +705,7 @@ COPY distribution FROM 'Distribution.tsv' DELIMITER E'\t' CSV HEADER;
 ```
 
 Import dataset  
-```bash
+```sql
 sed -i '1 s/order/ordername/' ibol.csv
 CREATE TABLE ibol(gbifid bigint, datasetkey text, occurrenceid text, kingdom text, phylum text, class text, ordername text, family text, genus text, species text, infraspecificepithet text, taxonrank text, scientificname text, countrycode text, locality text, publishingorgkey text, decimallatitude float8, decimallongitude float8, coordinateuncertaintyinmeters float8, coordinateprecision float8, elevation float8, elevationaccuracy float8, depth float8, depthaccuracy float8, eventdate date, day int, month int, year int, taxonkey int, specieskey int, basisofrecord text, institutioncode text, collectioncode text, catalognumber text, recordnumber text, identifiedby text, dateidentified text, license text, rightsholder text, recordedby text, typestatus text, establishmentmeans text, lastinterpreted text, mediatype text, issue text);
 COPY ibol FROM 'ibol.csv' DELIMITER E'\t' CSV HEADER;
@@ -614,13 +721,13 @@ UPDATE ibol a SET vernacularname = b.string_agg FROM vernacularname_agg b WHERE 
 ```
 
 Export gbif as labels on contours  
-```bash
+```sql
 extent="-123,41,-111,51"
 ogr2ogr -overwrite -f "SQLite" -dsco SPATIALITE=YES -sql "SELECT a.vname_en, a.datasetkey, a.kingdom, a.phylum, a.class, a.order, a.family, a.genus, a.species, a.scientificname, (SELECT b.geom FROM contour10m_seg1_5 AS b ORDER BY b.geom <-> ST_GeometryN(ST_Collect(a.geom),1) LIMIT 1) FROM nmnh AS a WHERE a.geom && ST_MakeEnvelope(${extent}) GROUP BY a.vname_en, a.datasetkey, a.kingdom, a.phylum, a.class, a.order, a.family, a.genus, a.species, a.scientificname" gbif_extract.sqlite -nln gbif -nlt LINESTRING PG:"dbname=contours"
 ```
 
 Export gbif one-to-many points  
-```bash
+```sql
 extent="-123,41,-111,51"
 ogr2ogr -overwrite -f "SQLite" -dsco SPATIALITE=YES -sql "SELECT a.geom, a.vname_en, a.datasetkey, a.kingdom, a.phylum, a.class, a.order, a.family, a.genus, a.species, a.scientificname, (SELECT CAST(b.fid AS int) AS contourid FROM contour10m_seg1_5 AS b ORDER BY b.geom <-> a.geom LIMIT 1) FROM nmnh AS a WHERE a.geom && ST_MakeEnvelope(${extent})" gbif_extract.sqlite -nln gbif -nlt POINT PG:"dbname=contours"
 ```
@@ -628,7 +735,7 @@ ogr2ogr -overwrite -f "SQLite" -dsco SPATIALITE=YES -sql "SELECT a.geom, a.vname
 ### Geonames
 
 Import  
-```bash
+```sql
 # format csv
 cat allCountries.txt | tr '"' "'" > allCountries.csv
 
@@ -666,7 +773,7 @@ UPDATE geonames a SET localname = c.alternatename FROM countryinfo b, alternaten
 ```
 
 Top 3 languages into array  
-```bash
+```sql
 ALTER TABLE countryinfo ADD COLUMN languagenames text array;
 UPDATE countryinfo a SET languagenames[1] = regexp_replace(regexp_replace(b.languagename, ' \(.*\)', ''), 'Modern ', '') FROM languagecodes b WHERE SPLIT_PART(regexp_replace(a.languages, '-'||a.iso, '', 'g'), ',', 1) = b.iso_639_1 OR SPLIT_PART(a.languages, ',', 1) = b.iso_639_3;
 UPDATE countryinfo a SET languagenames[2] = regexp_replace(regexp_replace(b.languagename, ' \(.*\)', ''), 'Modern ', '') FROM languagecodes b WHERE SPLIT_PART(regexp_replace(a.languages, '-'||a.iso, '', 'g'), ',', 2) = b.iso_639_1 OR SPLIT_PART(a.languages, ',', 2) = b.iso_639_3;
@@ -678,7 +785,7 @@ UPDATE countryinfo a SET languagenames[3] = regexp_replace(regexp_replace(b.lang
 ```
 
 List & order places in extent  
-```bash
+```sql
 # alphabetical
 psql -d world -c "WITH b AS (SELECT b.longitude, b.latitude, array_agg(a.name ORDER BY b.page, a.name) places FROM ne_10m_populated_places_3857 a, worldatlas_pages_3857 b, worldatlas_extents c WHERE a.scalerank IN (0,1,2,3,4) AND b.page IS NOT NULL AND b.longitude = c.longitude AND b.latitude = c.latitude AND ST_Intersects(a.geom, ST_MakeEnvelope(c.x_min,c.y_min,c.x_max,c.y_max,3857)) GROUP BY b.page, b.longitude, b.latitude) UPDATE worldatlas_pages_3857 a SET places = b.places FROM b WHERE a.longitude = b.longitude AND a.latitude = b.latitude;"
 
@@ -691,7 +798,7 @@ psql -d world -c "WITH b AS (SELECT b.longitude, b.latitude, array_agg(a.name ||
 ```
 
 Rank places with rank() or row_number()  
-```bash
+```sql
 # by place
 ALTER TABLE geonames ADD COLUMN pop_rank int; WITH b AS (SELECT fid, RANK() OVER (PARTITION BY countrycode ORDER BY population DESC) pop_rank FROM geonames WHERE featurecode LIKE 'PPL%' AND name NOT IN ('Brooklyn','Queens','Manhattan','The Bronx')) UPDATE geonames a SET pop_rank = b.pop_rank FROM b WHERE a.fid = b.fid;
 ALTER TABLE geonames ADD COLUMN mt_rank int; WITH b AS (SELECT fid, RANK() OVER (PARTITION BY countrycode ORDER BY dem DESC) mt_rank FROM geonames WHERE featurecode = 'MT') UPDATE geonames a SET mt_rank = b.mt_rank FROM b WHERE a.fid = b.fid;
@@ -702,14 +809,14 @@ psql -d world -c "WITH b AS (SELECT b.fid, ROW_NUMBER () OVER (PARTITION BY CONC
 ```
 
 Aggregate pop rank, mt rank  
-```bash
+```sql
 CREATE TABLE geonames_pop_rank AS SELECT countrycode, STRING_AGG(CONCAT(name, '.....', TO_CHAR(population::int, 'FM9,999,999,999')), ';' ORDER BY population DESC) pop_ranks FROM geonames WHERE pop_rank <= 5 GROUP BY countrycode;
 CREATE TABLE geonames_mt_rank AS SELECT countrycode, STRING_AGG(CONCAT(name, '.....', TO_CHAR(coalesce(elevation, dem)::int, 'FM9,999,999,999'), 'm'), ';' ORDER BY dem DESC) mt_ranks FROM geonames WHERE mt_rank <= 3 GROUP BY countrycode;
 CREATE TABLE geonames_top_rank AS SELECT * FROM geonames WHERE pop_rank <=5 OR mt_rank <= 3 OR featurecode IN ('PPLC');
 ```
 
 Add useful columns  
-```bash
+```sql
 # scalerank from natural earth
 ALTER TABLE geonames ADD COLUMN scalerank INT;
 UPDATE geonames a SET scalerank = b.scalerank FROM ne_10m_populated_places b WHERE a.geonameid = b.geonamesid;
@@ -720,19 +827,19 @@ UPDATE geonames a SET aspect_lev06 = b.aspect_mean FROM basinatlas_v10_lev06 b W
 ```
 
 Filter  
-```bash
+```sql
 # by countrycode
 CREATE TABLE geonames_th AS SELECT * FROM geonames WHERE countrycode = 'TH';
 ```
 
 Export  
-```bash
+```sql
 # nearest contour line
 ogr2ogr -overwrite -update -f "SQLite" -sql "SELECT a.featurecode_name, a.featureclass, (SELECT b.geom FROM contour10m_segments1_5 AS b ORDER BY b.geom <-> ST_GeometryN(ST_Collect(a.geom),1) LIMIT 1) FROM allcountries AS a WHERE a.geom && ST_MakeEnvelope(-123,41,-111,51) AND a.featureclass IN ('T','H','U','V') GROUP BY a.featurecode_name, a.featureclass" export.sqlite -nln geonames -nlt LINESTRING PG:"dbname=topo15
 ```
 
 Export ASEAN data for web
-```bash
+```sql
 # countryinfo
 psql -d world -t -A -c "SELECT jsonb_agg(row_to_json(countryinfo)) FROM countryinfo WHERE country IN ('Brunei','Cambodia','Indonesia','Laos','Malaysia','Myanmar','Philippines','Singapore','Thailand','Vietnam');" > ~/test/json/asean_countryinfo.json
 ```
@@ -740,13 +847,13 @@ psql -d world -t -A -c "SELECT jsonb_agg(row_to_json(countryinfo)) FROM countryi
 ### GHCN
 
 Prep files  
-```bash
+```sql
 ./ghcn2csv-converter.py -f daily -i ghcnd_gsn.dly -o ghcnd_gsn.csv
 cat ghcnd-stations.txt | awk -v OFS='\t' '{print substr($0,1,12), substr($0,13,8), substr($0,22,9), substr($0,32,6), substr($0,39,2), substr($0,42,30), substr($0,73,3), substr($0,77,3), substr($0,81,5)}' | sed 's/ *\t */\t/g' > ghcnd-stations.csv
 ```
 
 Create table  
-```bash
+```sql
 # import data
 CREATE TABLE ghcn(id varchar,year integer,month integer,element varchar,value1 Integer,mflag1 varchar,qflag1 varchar,sflag1 varchar,value2 integer,mflag2 varchar,qflag2 varchar,sflag2 varchar,value3 integer,mflag3 varchar,qflag3 varchar,sflag3 varchar,value4 integer,mflag4 varchar,qflag4 varchar,sflag4 varchar,value5 integer,mflag5 varchar,qflag5 varchar,sflag5 varchar,value6 integer,mflag6 varchar,qflag6 varchar,sflag6 varchar,value7 integer,mflag7 varchar,qflag7 varchar,sflag7 varchar,value8 integer,mflag8 varchar,qflag8 varchar,sflag8 varchar,value9 integer,mflag9 varchar,qflag9 varchar,sflag9 varchar,value10 integer,mflag10 varchar,qflag10 varchar,sflag10 varchar,value11 integer,mflag11 varchar,qflag11 varchar,sflag11 varchar,value12 integer,mflag12 varchar,qflag12 varchar,sflag12 varchar,value13 integer,mflag13 varchar,qflag13 varchar,sflag13 varchar,value14 integer,mflag14 varchar,qflag14 varchar,sflag14 varchar,value15 integer,mflag15 varchar,qflag15 varchar,sflag15 varchar,value16 integer,mflag16 varchar,qflag16 varchar,sflag16 varchar,value17 integer,mflag17 varchar,qflag17 varchar,sflag17 varchar,value18 integer,mflag18 varchar,qflag18 varchar,sflag18 varchar,value19 integer,mflag19 varchar,qflag19 varchar,sflag19 varchar,value20 integer,mflag20 varchar,qflag20 varchar,sflag20 varchar,value21 integer,mflag21 varchar,qflag21 varchar,sflag21 varchar,value22 integer,mflag22 varchar,qflag22 varchar,sflag22 varchar,value23 integer,mflag23 varchar,qflag23 varchar,sflag23 varchar,value24 integer,mflag24 varchar,qflag24 varchar,sflag24 varchar,value25 integer,mflag25 varchar,qflag25 varchar,sflag25 varchar,value26 integer,mflag26 varchar,qflag26 varchar,sflag26 varchar,value27 integer,mflag27 varchar,qflag27 varchar,sflag27 varchar,value28 integer,mflag28 varchar,qflag28 varchar,sflag28 varchar,value29 integer,mflag29 varchar,qflag29 varchar,sflag29 varchar,value30 integer,mflag30 varchar,qflag30 varchar,sflag30 varchar,value31 integer,mflag31 varchar,qflag31 varchar,sflag31 varchar);
 COPY ghcn FROM 'ghcnd_gsn.csv' DELIMITER ',' CSV HEADER;
@@ -771,14 +878,14 @@ CREATE INDEX ghcn_gid ON ghcn USING GIST (geom);
 ### Hydroatlas
 
 Import hydroatlas  
-```bash
+```sql
 # import
 ogr2ogr -f PostgreSQL PG:dbname=world RiverATLAS_v10.gdb RiverATLAS_v10
 ogr2ogr -f PostgreSQL PG:dbname=world -nlt PROMOTE_TO_MULTI BasinATLAS_v10.gdb
 ```
 
 Add dem, aspect to basins  
-```bash
+```sql
 # import rasters
 raster2pgsql -d -s 4326 -I -C -M -F -t 1x1 topo15_4320.tif topo15_4320 | psql -d world
 raster2pgsql -d -s 4326 -I -C -M -F -t 1x1 topo15_4320_aspect.tif topo15_4320_aspect | psql -d world
@@ -814,7 +921,7 @@ psql -d world -c "CREATE TABLE riveratlas_v10_dissolve AS SELECT (ST_Dump(ST_Uni
 ```
 
 Intersect rivers and subunit  
-```bash
+```sql
 # list columns
 echo $(psql -qAtX -d world -c '\d riveratlas_v10' | grep -v "shape" | sed -e 's/|.*//g' | paste -sd',')
 
@@ -826,7 +933,7 @@ psql -d world -c "CREATE INDEX riveratlas_v10_${subunit}_gid ON riveratlas_v10_$
 ```
 
 Basins to voronoi polygons  
-```bash
+```sql
 a=06
 psql -d world -c "DROP TABLE IF EXISTS basinatlas_v10_lev${a}_voronoi;"
 psql -d world -c "CREATE TABLE basinatlas_v10_lev${a}_voronoi AS SELECT * FROM basinatlas_v10_lev${a};"
@@ -846,10 +953,14 @@ psql -d world -c "UPDATE basinatlas_v10_lev${a}_voronoi a SET aspect_mean = (ST_
 ```
 
 Intersect basins and hillshade  
-`psql -d world -c "CREATE TABLE basinatlas_v10_lev08_voronoi_hillshade AS SELECT $(echo $(psql -qAtX -d world -c '\d basinatlas_v10_lev08_voronoi' | grep -v "shape" | sed -e 's/^/a./g' -e 's/|.*//g' | paste -sd',')), ST_Intersection(a.shape, b.geom) shape FROM basinatlas_v10_lev08_voronoi a, topo15_004_0004_hillshade b WHERE ST_Intersects(a.shape, b.geom)"`
+```sql
+psql -d world -c "CREATE TABLE basinatlas_v10_lev08_voronoi_hillshade AS SELECT $(echo $(psql -qAtX -d world -c '\d basinatlas_v10_lev08_voronoi' | grep -v "shape" | sed -e 's/^/a./g' -e 's/|.*//g' | paste -sd',')), ST_Intersection(a.shape, b.geom) shape FROM basinatlas_v10_lev08_voronoi a, topo15_004_0004_hillshade b WHERE ST_Intersects(a.shape, b.geom)"
+```
 
 Clip dem by basin  
-`gdalwarp -s_srs 'EPSG:4326' -t_srs 'EPSG:4326' -crop_to_cutline -cutline 'PG:dbname=world' -csql "SELECT shape FROM basinatlas_v10_lev01" topo15_4320_43200.tif topo15_4320_43200_lev01.tif`
+```sql
+gdalwarp -s_srs 'EPSG:4326' -t_srs 'EPSG:4326' -crop_to_cutline -cutline 'PG:dbname=world' -csql "SELECT shape FROM basinatlas_v10_lev01" topo15_4320_43200.tif topo15_4320_43200_lev01.tif
+```
 
 ### Koppen
 
@@ -902,7 +1013,7 @@ UPDATE koppen a SET name = b.name FROM koppen_name b WHERE a.gridcode = b.gridco
 ### Natural Earth
 
 Add & update useful columns  
-```bash
+```sql
 # localname from geonames
 ALTER TABLE ne_10m_populated_places ADD COLUMN localname text;
 UPDATE ne_10m_populated_places a SET localname = b.localname FROM geonames b WHERE a.geonamesid = b.geonameid;
@@ -917,12 +1028,12 @@ UPDATE ne_10m_admin_0_map_subunits a SET fips_10 = b.fips FROM countryinfo b whe
 ```
 
 Intersect with contours  
-```bash
+```sql
 psql -d world -c "CREATE TABLE topo15_4320_1000m_polygon_subunits AS SELECT $(echo $(psql -qAtX -d world -c '\d ne_10m_admin_0_map_subunits' | grep -v "shape" | sed -e 's/^/a./g' -e 's/|.*//g' | paste -sd',')), b.amin, b.amax, (ST_Multi(ST_Intersection(ST_Buffer(a.geom,0), (ST_Buffer(b.geom,0)))))::geometry(MultiPolygon,4326) AS geom FROM ne_10m_admin_0_map_subunits a, topo15_4320_1000m_polygon b WHERE ST_Intersects(a.geom, b.geom);"
 ```
 
 Intersect with grid and dissolve  
-```bash
+```sql
 # by creating table (creates overlapping features)
 table=ne_10m_admin_1_states_provinces_lakes
 columns=$(psql -AtqX -d world -c "SELECT string_agg(column_name, ', ' order by ordinal_position) as columns FROM information_schema.columns WHERE table_name = '${table}' AND column_name NOT IN ('geom','shape','geometry') GROUP BY table_name;" | sed -e "s/^/b./" -e 's/, /, b./g')
@@ -940,7 +1051,7 @@ psql -d world -c "DROP TABLE IF EXISTS grid02_${nickname}; CREATE TABLE grid02_$
 ```
 
 Snap lines to grid  
-```bash
+```sql
 table=ne_10m_roads
 columns=$(psql -AtqX -d world -c "SELECT string_agg(column_name, ', ' order by ordinal_position) as columns FROM information_schema.columns WHERE table_name = '${table}' AND column_name NOT IN ('geom','shape','geometry') GROUP BY table_name;")
 psql -d world -c "DROP TABLE IF EXISTS grid04_${table}; CREATE TABLE grid04_${table} AS SELECT ${columns}, ST_SnapToGrid(ST_Segmentize(geom, 0.8), 0.4) geom FROM ${table};"
@@ -949,7 +1060,7 @@ psql -d world -c "DROP TABLE IF EXISTS grid04_${table}; CREATE TABLE grid04_${ta
 ### OpenStreetMap
 
 Import points, lines, multilines & polygons from shell  
-```bash
+```sql
 # for hstore: -lco COLUMN_TYPES=other_tags=hstore
 osmfile=asean.vrt
 ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nln ${osmfile%.osm.pbf}_points PG:dbname=osm ${osmfile} points
@@ -959,10 +1070,12 @@ ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nlt promote_to_multi -nln $
 ```
 
 Use ST_IsValid for broken polygons  
-`SELECT ST_Buffer(wkb_geometry,0) wkb_geometry FROM bangkok_polygons WHERE building IS NOT NULL AND ST_IsValid(wkb_geometry)`
+```sql
+SELECT ST_Buffer(wkb_geometry,0) wkb_geometry FROM bangkok_polygons WHERE building IS NOT NULL AND ST_IsValid(wkb_geometry)
+```
 
 Working with other_tags  
-```bash
+```sql
 # list other_tags
 SELECT DISTINCT other_tags FROM bangkok_polygons WHERE other_tags IS NOT NULL ORDER BY other_tags;
 
@@ -977,13 +1090,13 @@ SELECT key_value_pair, COUNT(*) AS key_count FROM (SELECT other_tags, key_value[
 ```
 
 Parks
-```bash
+```sql
 # national and state parks
 CREATE TABLE us_parks AS SELECT * FROM us_latest_polygons WHERE other_tags LIKE '%"protection_title"=>"State Park"%' OR other_tags LIKE '%"protection_title"=>"National Park"%';
 ```
 
 Transportation  
-```bash
+```sql
 # select all public transport stations
 SELECT name, other_tags FROM bangkok_points WHERE other_tags LIKE '%"public_transport"=>"station"%';
 
@@ -1001,7 +1114,7 @@ CREATE TABLE bangkok_highway_buffer5 AS SELECT highway, (ST_Dump(ST_Union(ST_Buf
 ```
 
 Amenities  
-```bash
+```sql
 # count amenties by neighborhood
 psql -d osm -c "ALTER TABLE ${place}_polygons ADD COLUMN amenity_count int;"
 psql -d osm -c "WITH stats AS (SELECT a.osm_id, count(b.other_tags LIKE '%amenity%') count FROM ${place}_polygons a, ${place}_points b WHERE a.admin_level IS NOT NULL AND b.other_tags LIKE '%amenity%' AND ST_Intersects(a.wkb_geometry, b.wkb_geometry) GROUP BY a.osm_id) UPDATE ${place}_polygons a SET amenity_count = stats.count FROM stats WHERE a.osm_id = stats.osm_id;"
@@ -1015,7 +1128,7 @@ done
 ```
 
 Extract by boundary polygon  
-```bash
+```sql
 # phuket points
 CREATE TABLE phuket_points AS SELECT a.id, a.osm_id, a.name, a.barrier, a.highway, a.ref, a.address, a.is_in, a.place, a.man_made, a.other_tags, ST_Intersection(a.geom, b.geom) geom FROM thailand_points a, thailand_polygons b WHERE b.other_tags LIKE '%Ko Phuket%' AND ST_Intersects(a.geom, b.geom);
 # phuket lines
@@ -1027,15 +1140,19 @@ CREATE TABLE phuket_polygons AS WITH b AS (SELECT geom FROM thailand_polygons WH
 ### Worldpop
 
 Resample  
-`gdalwarp -s_srs 'EPSG:4326' -t_srs 'EPSG:4326' -tr 0.08 0.08 -r cubicspline ppp_2020_1km_Aggregated.tif /vsistdout/ | gdalwarp -s_srs 'EPSG:4326' -t_srs 'EPSG:4326' -tr 0.008 0.008 -r cubicspline /vsistdin/ ppp_2020_1km_Aggregated_008_0008.tif`
+```sql
+gdalwarp -s_srs 'EPSG:4326' -t_srs 'EPSG:4326' -tr 0.08 0.08 -r cubicspline ppp_2020_1km_Aggregated.tif /vsistdout/ | gdalwarp -s_srs 'EPSG:4326' -t_srs 'EPSG:4326' -tr 0.008 0.008 -r cubicspline /vsistdin/ ppp_2020_1km_Aggregated_008_0008.tif
+```
 
 Contours  
-`gdal_contour -p -fl 100 200 300 400 500 600 700 800 900 1000 -amin amin -amax amax ppp_2020_1km_Aggregated_008_0008.tif ppp_2020_1km_Aggregated_008_0008_contours.gpkg`
+```sql
+gdal_contour -p -fl 100 200 300 400 500 600 700 800 900 1000 -amin amin -amax amax ppp_2020_1km_Aggregated_008_0008.tif ppp_2020_1km_Aggregated_008_0008_contours.gpkg
+```
 
 ### WWF Ecoregions
 
 Insert biome names  
-```bash
+```sql
 ALTER TABLE wwf_terr_ecos ADD COLUMN biome_name text;
 UPDATE wwf_terr_ecos SET biome_name = CASE WHEN "biome" = 1 THEN 'Tropical & Subtropical Moist Broadleaf Forests'
   WHEN "biome" = 2 THEN 'Tropical & Subtropical Dry Broadleaf Forests'
