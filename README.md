@@ -13,7 +13,7 @@ Useful commands for working with spatial data in psql and bash.
 
 ## Starting out
 
-Sign in for the first time
+Sign in for the first time  
 ```shell
 sudo -u postgres psql
 ```
@@ -164,6 +164,11 @@ psql -d world - c "SELECT jsonb_agg(row_to_json(countryinfo)) FROM countryinfo W
 
 ## Basic operations
 
+Print from shell without formatting  
+```shell
+psql -AtqX -d world -c "SELECT * FROM places;"
+```
+
 List tables  
 ```sql
 COPY (SELECT * FROM pg_catalog.pg_tables) TO STDOUT;
@@ -220,7 +225,7 @@ Column to row
 SELECT name, (x).key, (x).value FROM (SELECT name, EACH(hstore(state2020)) AS x FROM state2020) q;
 ```
 
-Get json keys  
+List json keys  
 ```sql
 SELECT DISTINCT jsonb_object_keys(tags) FROM highway_primary;
 ```
@@ -240,7 +245,7 @@ Convert hstore to text
 ALTER TABLE points_${geoid} ALTER COLUMN other_tags TYPE TEXT;
 ```
 
-Get hstore keys  
+List hstore keys  
 ```sql
 SELECT DISTINCT skeys(hstore(tags)) FROM planet_osm_polygon;
 ```
@@ -425,7 +430,7 @@ Simplify
 CREATE TABLE subunits_simple01 AS SELECT name, ST_SimplifyPreserveTopology(geom, 0.1) AS geom FROM subunits;
 ```
 
-Smooth label geom  
+Smooth    
 ```sql
 UPDATE countries_labels_3857 a SET geom = ST_Buffer(ST_Buffer(b.geom,10000),-10000) FROM countries_3857 b WHERE a.fid = b.fid;
 ```
@@ -584,6 +589,12 @@ UPDATE places a SET dem = ST_Value(r.rast, 1, a.geom) FROM topo15_43200 r WHERE 
 
 # at polygon
 UPDATE basinatlas_v10_lev${a} a SET dem_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320 b WHERE ST_Intersects(b.rast, a.shape);
+```
+
+Make line
+```sql
+CREATE TABLE ne_10m_populated_places_lines AS SELECT fid, name, scalerank, ST_Segmentize(ST_MakeLine(ST_Translate(geom,-10,0), ST_Translate(geom,10,0)),1)::geometry(linestring,4326) geom FROM ne_10m_populated_places;
+
 ```
 
 Make extent/envelope  
