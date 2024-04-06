@@ -23,7 +23,17 @@ Create db
 CREATE USER steve;
 ALTER USER steve WITH SUPERUSER;
 createdb -O steve world
+```
+
+Add extensions  
+```sql
 CREATE EXTENSION postgis; CREATE EXTENSION postgis_topology; CREATE EXTENSION postgis_raster; CREATE EXTENSION postgis_sfcgal; CREATE EXTENSION hstore; CREATE extension tablefunc;
+```
+
+Add pgrouting  
+```sql
+# apt install postgresql-pgrouting
+CREATE EXTENSION pgrouting;
 ```
 
 Add user and password  
@@ -323,6 +333,15 @@ Aggregate
 CREATE TABLE vernacularname_agg AS SELECT taxonid,string_agg(vernacularname,';') FROM vernacularname GROUP BY taxonid;
 ```
 
+Calculate stats  
+```sql
+# median
+WITH stats AS (SELECT DISTINCT PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY ${column}::real) q1, PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ${column}::real) q2, PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY ${column}::real) q3 FROM ${table} WHERE ${column}::text ~ '^[0-9\\\.]+$' AND ${column}::real <= 100) SELECT 'q1' AS quartile, MIN(${column}::real) AS min, MAX(${column}::real) AS max, ST_Union(ST_Buffer(b.geom,0)) AS geom FROM ${table} a, ne_10m_admin_2_counties_lakes b, stats WHERE a.${column}::real < stats.q1 AND SUBSTRING(a.geo_id,10,5) = b.code_local
+
+# combo rank, order, percentage change
+WITH stats AS (SELECT geoid, ARRAY_AGG(name ORDER BY pop::numeric DESC) AS places FROM (SELECT b.geoid, a.name, a.pop, ROW_NUMBER() OVER (PARTITION BY b.geoid ORDER BY a.pop::numeric DESC) AS row_num FROM place2022 a JOIN county b ON ST_Intersects(ST_Centroid(a.shape), b.shape)) subquery WHERE row_num <= 3 GROUP BY geoid) SELECT a.stname, a.ctyname, stats.places, a.popestimate2023, a.npopchg2023, ROUND(((a.popestimate2023::numeric - a.popestimate2022::numeric) / a.popestimate2022::numeric) * 100,2) AS rpopchg2023, RANK() OVER (ORDER BY ((a.popestimate2023::numeric - a.popestimate2022::numeric) / a.popestimate2022::numeric) * 100 DESC) AS cty_rank, ROUND(((b.popestimate2023::numeric - b.popestimate2022::numeric) / b.popestimate2022::numeric) * 100,2) AS st_rpopchg2023, DENSE_RANK() OVER (ORDER BY ((b.popestimate2023::numeric - b.popestimate2022::numeric) / b.popestimate2022::numeric) * 100 DESC) AS st_rank FROM co_est2023 a JOIN nst_est2023 b ON a.state = b.state JOIN stats ON a.geoid = stats.geoid WHERE a.sumlev = '050' AND b.sumlev = '040' AND a.popestimate2023::real > 1000000 ORDER BY ctyname;
+```
+
 ## Spatial operations
 
 Print available epsg/srid  
@@ -431,7 +450,14 @@ CREATE TABLE subunits_simple01 AS SELECT name, ST_SimplifyPreserveTopology(geom,
 ```
 
 Smooth    
-```sql
+```bash
+# chaikin
+table=ne_50m_admin_0_map_subunits
+psql -d world -c ""
+CREATE TABLE 
+ST_ChaikinSmoothing
+
+# buffer hack
 UPDATE countries_labels_3857 a SET geom = ST_Buffer(ST_Buffer(b.geom,10000),-10000) FROM countries_3857 b WHERE a.fid = b.fid;
 ```
 
@@ -584,10 +610,10 @@ WITH intersection_area AS (SELECT ST_Intersection(a.geom, b.geom) AS geom, ST_Ar
 
 Sample raster  
 ```sql
-# at point
+# point
 UPDATE places a SET dem = ST_Value(r.rast, 1, a.geom) FROM topo15_43200 r WHERE ST_Intersects(r.rast,a.geom);
 
-# at polygon
+# polygon
 UPDATE basinatlas_v10_lev${a} a SET dem_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320 b WHERE ST_Intersects(b.rast, a.shape);
 ```
 
@@ -626,14 +652,17 @@ Make triangles
 # voronoi
 CREATE TABLE basinatlas_v10_lev06_voronoi AS WITH a AS (SELECT (ST_Dump(ST_VoronoiPolygons(ST_Collect(ST_Centroid(shape))))).geom::GEOMETRY(POLYGON,4326) shape FROM basinatlas_v10_lev06) SELECT objectid,up_area,dem_mean,aspect_mean,a.shape FROM a, basinatlas_v10_lev06 b WHERE ST_Intersects(ST_Centroid(a.shape), b.shape);
 
-# delaunay
+# delaunay triangles
 CREATE TABLE places_delaunay AS SELECT (ST_Dump(ST_DelaunayTriangles(ST_Union(geom),0.001,1))).geom::geometry(LINESTRING,4326) AS geom FROM places;
+
+# delaunay polygons
+DROP TABLE IF EXISTS geonames_delaunay_thailand; CREATE TABLE geonames_delaunay_thailand AS SELECT (ST_Dump(ST_DelaunayTriangles(ST_Collect(geom),0.0,0))).geom::geometry(POLYGON,4326) FROM (SELECT ST_DelaunayTriangles(ST_Collect(geom)) AS geom FROM geonames WHERE featureclass = 'T' AND countrycode = 'TH') b;
 ```
 
 Polygonize  
 ```sql
 # contours
-CREATE TABLE contour100m_poly AS SELECT fid, elev, (ST_Dump(ST_MakePolygon(geom))).geom::geometry(POLYGON,4326) AS geom FROM contour100m WHERE ST_IsClosed(geom);
+DROP TABLE IF EXISTS topo15_4320_43200_100m_sliced; CREATE TABLE topo15_4320_43200_100m_sliced AS SELECT meters, (ST_Dump(ST_MakePolygon(geom))).geom::geometry(POLYGON,4326) AS geom FROM topo15_4320_43200_100m WHERE ST_IsClosed(geom) AND meters IN (0);
 
 # lines to polygons (using polygonize)
 CREATE TABLE seoul_highway_polygons AS WITH b AS (SELECT ST_Multi(ST_Node(ST_Collect(wkb_geometry))) wkb_geometry FROM seoul_lines WHERE highway IN ('motorway','trunk','primary','secondary','tertiary','residential')) SELECT (ST_Dump(ST_Polygonize(wkb_geometry))).geom::GEOMETRY(POLYGON,3857) wkb_geometry FROM b;
@@ -1054,9 +1083,9 @@ columns=$(psql -AtqX -d world -c "SELECT string_agg(column_name, ', ' order by o
 psql -d world -c "DROP TABLE IF EXISTS grid02_${nickname}; CREATE TABLE grid02_${nickname} AS SELECT ST_Union(ST_Buffer(a.geom,0)) geom, ${columns} FROM grid02 a, ${table} b WHERE a.${nickname} = b.fid GROUP BY b.fid;"
 ```
 
-Snap lines to grid  
+Create grid from layer  
 ```shell
-table=ne_10m_roads
+table=ne_10m_railroads
 columns=$(psql -AtqX -d world -c "SELECT string_agg(column_name, ', ' order by ordinal_position) as columns FROM information_schema.columns WHERE table_name = '${table}' AND column_name NOT IN ('geom','shape','geometry') GROUP BY table_name;")
 psql -d world -c "DROP TABLE IF EXISTS grid04_${table}; CREATE TABLE grid04_${table} AS SELECT ${columns}, ST_SnapToGrid(ST_Segmentize(geom, 0.8), 0.4) geom FROM ${table};"
 ```
