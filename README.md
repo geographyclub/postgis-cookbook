@@ -342,11 +342,25 @@ WITH stats AS (SELECT DISTINCT PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY ${co
 WITH stats AS (SELECT geoid, ARRAY_AGG(name ORDER BY pop::numeric DESC) AS places FROM (SELECT b.geoid, a.name, a.pop, ROW_NUMBER() OVER (PARTITION BY b.geoid ORDER BY a.pop::numeric DESC) AS row_num FROM place2022 a JOIN county b ON ST_Intersects(ST_Centroid(a.shape), b.shape)) subquery WHERE row_num <= 3 GROUP BY geoid) SELECT a.stname, a.ctyname, stats.places, a.popestimate2023, a.npopchg2023, ROUND(((a.popestimate2023::numeric - a.popestimate2022::numeric) / a.popestimate2022::numeric) * 100,2) AS rpopchg2023, RANK() OVER (ORDER BY ((a.popestimate2023::numeric - a.popestimate2022::numeric) / a.popestimate2022::numeric) * 100 DESC) AS cty_rank, ROUND(((b.popestimate2023::numeric - b.popestimate2022::numeric) / b.popestimate2022::numeric) * 100,2) AS st_rpopchg2023, DENSE_RANK() OVER (ORDER BY ((b.popestimate2023::numeric - b.popestimate2022::numeric) / b.popestimate2022::numeric) * 100 DESC) AS st_rank FROM co_est2023 a JOIN nst_est2023 b ON a.state = b.state JOIN stats ON a.geoid = stats.geoid WHERE a.sumlev = '050' AND b.sumlev = '040' AND a.popestimate2023::real > 1000000 ORDER BY ctyname;
 ```
 
+Look up dictionary  
+```shell
+psql -d osm -t -c "SELECT amenity FROM toronto_point;" > /home/steve/Downloads/tmp/toronto_amenity.txt
+cat /home/steve/Downloads/tmp/toronto_amenity.txt | while read line; do
+  word=$(echo ${line} | tr '_' ' ')
+  if [ -z "$word" ]
+    then echo ""
+    else dict -s first -s exact $word
+  fi
+done
+```
+
 ## Spatial operations
 
 Print available epsg/srid  
 ```sql
 SELECT srid, proj4text FROM spatial_ref_sys;
+
+SELECT srid, srtext AS wkt FROM public.spatial_ref_sys WHERE srid = 4326;
 ```
 
 Add missing epsg/srid (see spatialreference.org)  
@@ -655,8 +669,17 @@ CREATE TABLE basinatlas_v10_lev06_voronoi AS WITH a AS (SELECT (ST_Dump(ST_Voron
 # delaunay triangles
 CREATE TABLE places_delaunay AS SELECT (ST_Dump(ST_DelaunayTriangles(ST_Union(geom),0.001,1))).geom::geometry(LINESTRING,4326) AS geom FROM places;
 
-# delaunay polygons
-DROP TABLE IF EXISTS geonames_delaunay_thailand; CREATE TABLE geonames_delaunay_thailand AS SELECT (ST_Dump(ST_DelaunayTriangles(ST_Collect(geom),0.0,0))).geom::geometry(POLYGON,4326) FROM (SELECT ST_DelaunayTriangles(ST_Collect(geom)) AS geom FROM geonames WHERE featureclass = 'T' AND countrycode = 'TH') b;
+# delaunay polygons (one country)
+DROP TABLE IF EXISTS geonames_delaunay_thailand; CREATE TABLE geonames_delaunay_thailand AS SELECT (ST_Dump(ST_DelaunayTriangles(ST_Collect(geom)))).geom::geometry(POLYGON,4326) FROM geonames WHERE featureclass = 'T' AND countrycode = 'TH';
+
+# delaunay polygons (group by country)
+DROP TABLE IF EXISTS geonames_delaunay; CREATE TABLE geonames_delaunay AS SELECT (geom).geom::geometry(POLYGON,4326) FROM (SELECT ST_DelaunayTriangles(ST_Collect(geom)) AS geom FROM geonames WHERE featureclass = 'T' GROUP BY countrycode) b;
+
+# bonus: add variables
+ALTER TABLE geonames_delaunay_thailand ADD COLUMN dem_mean int;
+UPDATE geonames_delaunay_thailand a SET dem_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320 b WHERE ST_Intersects(b.rast, a.geom);
+ALTER TABLE geonames_delaunay_thailand ADD COLUMN aspect_mean int;
+UPDATE geonames_delaunay_thailand a SET aspect_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320_aspect b WHERE ST_Intersects(b.rast, a.geom);
 ```
 
 Polygonize  
@@ -697,7 +720,42 @@ DROP TABLE IF EXISTS ne_10m_admin_0_map_subunits_letters; CREATE TABLE ne_10m_ad
 
 ### ASEAN
 
-Import files after cleaning!  
+Process geography files  
+```shell
+# download asean osm  
+countries=('cambodia' 'indonesia' 'laos' 'malaysia-singapore-brunei' 'myanmar' 'philippines' 'thailand' 'vietnam')
+for country in "${countries[@]}"; do
+  wget https://download.geofabrik.de/asia/${country}-latest.osm.pbf
+done
+
+# import
+ls *.osm.pbf | while read file; do
+  ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nln ${file%-latest.osm.pbf}_points PG:dbname=osm ${file} points
+  ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nln ${file%-latest.osm.pbf}_lines PG:dbname=osm ${file} lines
+  ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nlt promote_to_multi -nln ${file%-latest.osm.pbf}_polygons PG:dbname=osm ${file} multipolygons
+done
+
+# join
+#countries=('cambodia' 'indonesia' 'laos' 'malaysia_singapore_brunei' 'myanmar' 'philippines' 'thailand' 'vietnam')
+#echo ${countries[@]} | sed -e "s/,/\n/g" | sed -e "s/^/SELECT * FROM /g" -e "s/$/_points UNION ALL/g" | tr '\n' ' '
+psql -d osm -c "CREATE TABLE asean_points AS SELECT * FROM cambodia_points UNION ALL SELECT * FROM indonesia_points UNION ALL SELECT * FROM laos_points UNION ALL SELECT * FROM malaysia_singapore_brunei_points UNION ALL SELECT * FROM myanmar_points UNION ALL SELECT * FROM philippines_points UNION ALL SELECT * FROM thailand_points UNION ALL SELECT * FROM vietnam_points;"
+psql -d osm -c "CREATE TABLE asean_lines AS SELECT * FROM cambodia_lines UNION ALL SELECT * FROM indonesia_lines UNION ALL SELECT * FROM laos_lines UNION ALL SELECT * FROM malaysia_singapore_brunei_lines UNION ALL SELECT * FROM myanmar_lines UNION ALL SELECT * FROM philippines_lines UNION ALL SELECT * FROM thailand_lines UNION ALL SELECT * FROM vietnam_lines;"
+psql -d osm -c "CREATE TABLE asean_polygons AS SELECT * FROM cambodia_polygons UNION ALL SELECT * FROM indonesia_polygons UNION ALL SELECT * FROM laos_polygons UNION ALL SELECT * FROM malaysia_singapore_brunei_polygons UNION ALL SELECT * FROM myanmar_polygons UNION ALL SELECT * FROM philippines_polygons UNION ALL SELECT * FROM thailand_polygons UNION ALL SELECT * FROM vietnam_polygons;"
+# remove individual tables
+countries=('cambodia' 'indonesia' 'laos' 'malaysia_singapore_brunei' 'myanmar' 'philippines' 'thailand' 'vietnam')
+for country in "${countries[@]}"; do
+  psql -d osm -c "DROP TABLE ${country}_polygons;"
+done
+
+# add index
+types=('points' 'lines' 'polygons')
+for type in "${types[@]}"; do
+  psql -d osm -c "ALTER TABLE asean_${type} ADD COLUMN fid serial primary key;"
+  psql -d osm -c "CREATE INDEX asean_${type}_gid ON asean_${type} USING GIST (wkb_geometry);"
+done
+```
+
+Process tables  
 ```sql
 # import basic indicators
 CREATE TABLE asean_basic_indicators(country varchar, area numeric, pop numeric, pop_rate numeric, pop_density numeric, gdp numeric, gdp_rate numeric, gdp_capita numeric, exports numeric, imports numeric, total_trade numeric, fdi numeric, visitor_arrivals numeric);
@@ -1157,6 +1215,21 @@ geographies=('state' 'county' 'place' 'puma')
 for geography in ${geographies[*]}; do
   psql -d osm -c "ALTER TABLE ${geography}2022 DROP COLUMN IF EXISTS worship_count; ALTER TABLE ${geography}2022 ADD COLUMN worship_count int;"
   psql -d osm -c "WITH stats AS (SELECT a.geoid, count(b.other_tags LIKE '%place_of_worship%') count FROM ${geography}2022 a, us_latest_points b WHERE b.other_tags LIKE '%place_of_worship%' AND ST_Intersects(ST_Buffer(a.shape,0), b.wkb_geometry) GROUP BY a.geoid) UPDATE ${geography}2022 a SET worship_count = stats.count FROM stats WHERE a.geoid = stats.geoid;"
+done
+```
+
+Export table of amenities with wikipedia tags by census geography (pop2020 > 100000)  
+```shell
+psql -Aqt -d us -c "COPY (SELECT geoid, name from county2020 WHERE CAST(pop2020 AS INT) > 100000) TO STDOUT DELIMITER E'\t';" | while IFS=$'\t' read -a array; do
+  psql -d us -c "COPY (SELECT jsonb_build_object('type', 'FeatureCollection', 'features', jsonb_agg(feature)) FROM (SELECT jsonb_build_object('type', 'Feature', 'id', osm_id, 'geometry', ST_AsGeoJSON(ST_Transform(wkb_geometry,4326))::jsonb, 'properties', to_jsonb(inputs) - 'wkb_geometry' - 'osm_id') AS feature FROM (SELECT name, other_tags, osm_id, wkb_geometry FROM points_amenity_county WHERE geoid = '${array[0]}' AND other_tags::text ILIKE '%wikipedia%') inputs) features) TO STDOUT;" > "${array[0]//[^a-zA-Z_0-9]/}"_"${array[1]//[^a-zA-Z_0-9]/}"_amenity_wikipedia.geojson
+done
+```
+
+Add brand names, counts by census geography  
+```shell
+psql -d us -c "ALTER TABLE county2020 ADD COLUMN brand json;"
+psql -Aqt -d us -c "COPY (SELECT geoid from county2020) TO STDOUT DELIMITER E'\t';" | while read geoid; do
+  psql -d us -c "UPDATE county2020 a SET brand = (SELECT json_agg(json_build_object(value::text, count::text)) FROM (SELECT value, COUNT(value) count FROM (SELECT geoid_block, other_tags->'brand' value FROM points_${geoid:0:2}) stat WHERE value IS NOT NULL AND SUBSTRING(stat.geoid_block::text,1,5) = '${geoid}' GROUP BY value ORDER BY count DESC) stats) WHERE a.geoid = '${geoid}';"
 done
 ```
 
