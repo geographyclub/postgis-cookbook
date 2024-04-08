@@ -605,11 +605,16 @@ CREATE TABLE subregions_3857 AS SELECT subregion, ST_Intersection(geom, ST_MakeE
 
 Intersects  
 ```sql
-CREATE TABLE test2 AS SELECT a.id, b.osm_id, a.geom FROM grid100 AS a, planet_osm_polygon AS b WHERE ST_Intersects(a.geom, b.way);
+SELECT a.id, b.osm_id, a.geom FROM grid100 AS a, planet_osm_polygon AS b WHERE ST_Intersects(a.geom, b.way);
 
-UPDATE grid100 a SET line_id = b.osm_id FROM planet_osm_line b WHERE ST_Intersects(a.geom,b.way) AND b.highway IN ('motorway','primary','secondary','tertiary','residential');
+SELECT b.osm_id FROM planet_osm_line b WHERE ST_Intersects(a.geom,b.way) AND b.highway IN ('motorway','primary','secondary','tertiary','residential');
 
 SELECT count(*), c.name FROM countries c JOIN places p ON ST_Intersects(c.geom, p.geom) GROUP BY c.name;
+```
+
+Intersects or nearest neighbor
+```sql
+COALESCE((SELECT b.eco_name FROM wwf_terr_ecos b WHERE ST_Intersects(a.geom, b.wkb_geometry)), (SELECT b.eco_name FROM wwf_terr_ecos b ORDER BY ST_Distance(a.geom, b.wkb_geometry) LIMIT 1));
 ```
 
 Disjoint  
@@ -617,7 +622,7 @@ Disjoint
 CREATE TABLE grid02_rivers AS SELECT a.dem_mean, a.aspect_mean, a.subunits, a.states, a.countries, a.geom FROM grid02 a, riveratlas_v10_simple1 b WHERE ST_Disjoint(a.geom, b.shape);
 ```
 
-Find area  
+Find area of intersecting feature  
 ```sql
 WITH intersection_area AS (SELECT ST_Intersection(a.geom, b.geom) AS geom, ST_Area(ST_Intersection(a.geom, b.geom)) AS area FROM your_polygon_table a, your_polygon_table b WHERE a.id <> b.id AND ST_Intersects(a.geom, b.geom)) SELECT a.id AS polygon_id_1, b
 ```
@@ -863,6 +868,22 @@ COPY languagecodes FROM 'iso-languagecodes.txt' DELIMITER E'\t' CSV HEADER;
 UPDATE geonames a SET localname = c.alternatename FROM countryinfo b, alternatenames c WHERE a.countrycode = b.iso AND a.geonameid = c.geonameid AND regexp_replace(regexp_replace(b.languages, '\-.*$', ''),',.*$','') = c.isolanguage;
 ```
 
+Import unum  
+```sql
+# cat /home/steve/maps/geonames/unum.tsv | tr -d '""' > /home/steve/maps/geonames/unum.csv
+CREATE TABLE unum(admin1code text, admin2code text, admin3code text, admin4code text, admin_level text, asciiname text, alternate_names text, attribution text, city text, county text, country text, country_code text, dem float, display_name text, elevation float, east float, geoname_feature_class text, geoname_feature_code text, geonameid int, importance float, latitude float, longitude float, name text, name_en text, north float, osmname_class text, osmname_type text, osm_type text, osm_id bigint, place_rank int, place_type text, population bigint, south float, state text, street text, timezone text, wikidata_id text, west float, enwiki_title text);
+COPY unum FROM '/home/steve/maps/geonames/unum.csv' CSV DELIMITER E'\t' HEADER;
+SELECT AddGeometryColumn('unum','geom',4326,'POINT',2);
+ALTER TABLE unum ALTER COLUMN geom SET STORAGE EXTERNAL;
+UPDATE unum SET geom = ST_SetSRID(ST_MakePoint(longitude,latitude),4326);
+CREATE INDEX unum_gid ON unum USING GIST ( geom );
+ALTER TABLE unum ADD COLUMN fid serial PRIMARY KEY;
+VACUUM ANALYZE unum;
+# join
+ALTER TABLE unum ADD COLUMN enwiki_offset bigint;
+UPDATE unum a SET enwiki_offset = b.enwiki_offset FROM enwiki_index b WHERE a.enwiki_title = b.enwiki_title;
+```
+
 Top 3 languages into array  
 ```sql
 ALTER TABLE countryinfo ADD COLUMN languagenames text array;
@@ -929,7 +950,7 @@ Export
 ogr2ogr -overwrite -update -f "SQLite" -sql "SELECT a.featurecode_name, a.featureclass, (SELECT b.geom FROM contour10m_segments1_5 AS b ORDER BY b.geom <-> ST_GeometryN(ST_Collect(a.geom),1) LIMIT 1) FROM allcountries AS a WHERE a.geom && ST_MakeEnvelope(-123,41,-111,51) AND a.featureclass IN ('T','H','U','V') GROUP BY a.featurecode_name, a.featureclass" export.sqlite -nln geonames -nlt LINESTRING PG:"dbname=topo15
 ```
 
-Export ASEAN data for web
+Export ASEAN countryinfo in json
 ```shell
 # countryinfo
 psql -d world -t -A -c "SELECT jsonb_agg(row_to_json(countryinfo)) FROM countryinfo WHERE country IN ('Brunei','Cambodia','Indonesia','Laos','Malaysia','Myanmar','Philippines','Singapore','Thailand','Vietnam');" > ~/test/json/asean_countryinfo.json
@@ -1110,12 +1131,16 @@ ALTER TABLE ne_10m_populated_places ADD COLUMN localname text;
 UPDATE ne_10m_populated_places a SET localname = b.localname FROM geonames b WHERE a.geonamesid = b.geonameid;
 UPDATE ne_10m_populated_places a SET localname = b.localname FROM geonames b WHERE a.nameascii = b.asciiname AND a.iso_a2 = b.countrycode AND a.localname IS NULL;
 
+# update fips from countryinfo
+UPDATE ne_10m_admin_0_map_subunits a SET fips_10 = b.fips FROM countryinfo b where a.iso_a2_eh = b.iso AND a.fips_10 = '-99';
+
 # continent from subunits
 ALTER TABLE ne_10m_populated_places ADD COLUMN continent text;
 UPDATE ne_10m_populated_places a SET continent = b.continent FROM ne_10m_admin_0_map_subunits b WHERE a.adm0_a3 = b.adm0_a3;
 
-# update natural earth fips with geonames countryinfo
-UPDATE ne_10m_admin_0_map_subunits a SET fips_10 = b.fips FROM countryinfo b where a.iso_a2_eh = b.iso AND a.fips_10 = '-99';
+# ecoregions from wwf (intersect or nearest neighbor)
+ALTER TABLE ne_10m_populated_places ADD COLUMN ecoregion text;
+UPDATE ne_10m_populated_places a SET ecoregion = COALESCE((SELECT b.eco_name FROM wwf_terr_ecos b WHERE ST_Intersects(a.geom, b.wkb_geometry)), (SELECT b.eco_name FROM wwf_terr_ecos b ORDER BY ST_Distance(a.geom, b.wkb_geometry) LIMIT 1));
 ```
 
 Intersect with contours  
@@ -1178,6 +1203,19 @@ SELECT other_tags FROM multipolygons WHERE other_tags LIKE '%construction%';
 
 # select keys and values
 SELECT key_value_pair, COUNT(*) AS key_count FROM (SELECT other_tags, key_value[1] || ' => ' || key_value[2] AS key_value_pair FROM (SELECT other_tags, regexp_split_to_array(other_tags, '=>') AS key_value FROM us_latest_points WHERE other_tags IS NOT NULL) AS subquery) AS subquery2 GROUP BY key_value_pair ORDER BY key_count DESC;
+```
+
+Add useful columns  
+```shell
+# add rand values for night light markers
+ALTER TABLE us_latest_points ADD COLUMN marker_size NUMERIC;
+UPDATE us_latest_points SET marker_size = ROUND((0.1 + (random() * (1 - 0.1)))::NUMERIC,2) WHERE other_tags LIKE '%amenity%';
+ALTER TABLE us_latest_points ADD COLUMN marker_color NUMERIC;
+UPDATE us_latest_points SET marker_color = ROUND(random()::NUMERIC,2) WHERE other_tags LIKE '%amenity%';
+
+CREATE TABLE us_latest_lines_points AS SELECT highway, ST_StartPoint(wkb_geometry) wkb_geometry, ROUND((0.1 + (random() * (1 - 0.1)))::NUMERIC,2) marker_size, ROUND(random()::NUMERIC,2) marker_color FROM us_latest_lines UNION ALL SELECT highway, ST_EndPoint(wkb_geometry) wkb_geometry, ROUND((0.1 + (random() * (1 - 0.1)))::NUMERIC,2) marker_size, ROUND(random()::NUMERIC,2) marker_color FROM us_latest_lines;
+ALTER TABLE us_latest_lines_points ADD COLUMN fid serial primary key;
+CREATE INDEX us_latest_lines_points_gid ON us_latest_lines_points USING GIST (wkb_geometry);
 ```
 
 Parks
