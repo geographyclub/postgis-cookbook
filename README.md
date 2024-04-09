@@ -612,9 +612,10 @@ SELECT b.osm_id FROM planet_osm_line b WHERE ST_Intersects(a.geom,b.way) AND b.h
 SELECT count(*), c.name FROM countries c JOIN places p ON ST_Intersects(c.geom, p.geom) GROUP BY c.name;
 ```
 
-Intersects or nearest neighbor
+Intersects or nearest neighbor (very useful!)
 ```sql
-COALESCE((SELECT b.eco_name FROM wwf_terr_ecos b WHERE ST_Intersects(a.geom, b.wkb_geometry)), (SELECT b.eco_name FROM wwf_terr_ecos b ORDER BY ST_Distance(a.geom, b.wkb_geometry) LIMIT 1));
+COALESCE((SELECT b.hybas_id FROM basinatlas_v10_lev06 b WHERE ST_Intersects(a.wkb_geometry, b.shape) LIMIT 1), (SELECT b.hybas_id FROM basinatlas_v10_lev06 b ORDER BY ST_Distance(a.wkb_geometry, b.shape) LIMIT 1));
+
 ```
 
 Disjoint  
@@ -1281,6 +1282,41 @@ CREATE TABLE phuket_lines AS SELECT a.id, a.osm_id, a.name, a.highway, a.waterwa
 CREATE TABLE phuket_polygons AS WITH b AS (SELECT geom FROM thailand_polygons WHERE other_tags LIKE '%Ko Phuket%') SELECT a.id, a.osm_id, a.osm_way_id, a.name, a.type, a.aeroway, a.amenity, a.admin_level, a.barrier, a.boundary, a.building, a.craft, a.geological, a.historic, a.land_area, a.landuse, a.leisure, a.man_made, a.military, a.natural, a.office, a.place, a.shop, a.sport, a.tourism, a.other_tags, ST_Intersection(a.geom, b.geom) geom FROM thailand_polygons a, b WHERE ST_Intersects(a.geom, b.geom);
 ```
 
+### SRTM
+
+Import bathymetry from topo15
+```shell
+raster2pgsql -d -s 4326 -I -C -M topo15_4320_ocean_accum.tif -F -t 1x1 topo15_4320_ocean_accum | psql -d world
+ogr2ogr -overwrite -s_srs 'epsg:4326' -t_srs 'epsg:4326' pg:dbname=world topo15_4320_ocean_streams.gpkg -nln topo15_4320_ocean_streams
+ogr2ogr -overwrite -s_srs 'epsg:4326' -t_srs 'epsg:4326' pg:dbname=world topo15_4320_ocean_basins.gpkg -nln topo15_4320_ocean_basins
+ogr2ogr -overwrite -s_srs 'epsg:4326' -t_srs 'epsg:4326' pg:dbname=world topo15_4320_ocean_halfbasins.gpkg -nln topo15_4320_ocean_halfbasins
+```
+
+Add values  
+```sql
+# streams
+ALTER TABLE topo15_4320_ocean_streams ADD COLUMN accum_mean numeric;
+UPDATE topo15_4320_ocean_streams a SET accum_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320_ocean_accum b WHERE ST_Intersects(b.rast, a.geom);
+
+# basins
+ALTER TABLE topo15_4320_ocean_basins ADD COLUMN dem_mean numeric;
+UPDATE topo15_4320_ocean_basins a SET dem_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320 b WHERE ST_Intersects(b.rast, a.geom);
+ALTER TABLE topo15_4320_ocean_basins ADD COLUMN aspect_mean numeric;
+UPDATE topo15_4320_ocean_basins a SET aspect_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320_aspect b WHERE ST_Intersects(b.rast, a.geom);
+ALTER TABLE topo15_4320_ocean_basins ADD COLUMN accum_mean numeric;
+UPDATE topo15_4320_ocean_basins a SET accum_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320_ocean_accum b WHERE ST_Intersects(b.rast, a.geom);
+
+# halfbasins
+ALTER TABLE topo15_4320_ocean_halfbasins ADD COLUMN dem_mean numeric;
+UPDATE topo15_4320_ocean_halfbasins a SET dem_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320 b WHERE ST_Intersects(b.rast, a.geom);
+ALTER TABLE topo15_4320_ocean_halfbasins ADD COLUMN aspect_mean numeric;
+UPDATE topo15_4320_ocean_halfbasins a SET aspect_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320_aspect b WHERE ST_Intersects(b.rast, a.geom);
+ALTER TABLE topo15_4320_ocean_halfbasins ADD COLUMN accum_mean numeric;
+UPDATE topo15_4320_ocean_halfbasins a SET accum_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320_ocean_accum b WHERE ST_Intersects(b.rast, a.geom);
+
+
+```
+
 ### Worldpop
 
 Resample  
@@ -1314,4 +1350,22 @@ UPDATE wwf_terr_ecos SET biome_name = CASE WHEN "biome" = 1 THEN 'Tropical & Sub
   WHEN "biome" = 14 THEN 'Mangroves'
   ELSE ''
 END;
+```
+
+Add hydroatlas columns  
+```sql
+# hybas_id
+ALTER TABLE wwf_terr_ecos ADD COLUMN hybas_id NUMERIC;
+UPDATE wwf_terr_ecos a SET hybas_id = b.hybas_id FROM basinatlas_v10_lev06 b WHERE ST_Intersects(a.wkb_geometry, b.shape);
+UPDATE wwf_terr_ecos a SET hybas_id = (SELECT b.hybas_id FROM basinatlas_v10_lev06 b WHERE a.hybas_id IS NULL ORDER BY ST_Distance(a.wkb_geometry, b.shape) LIMIT 1);
+
+# up_area
+ALTER TABLE wwf_terr_ecos ADD COLUMN up_area NUMERIC;
+UPDATE wwf_terr_ecos a SET up_area = b.up_area FROM basinatlas_v10_lev06 b WHERE a.hybas_id = b.hybas_id;
+
+#temp
+ALTER TABLE wwf_terr_ecos ADD COLUMN tmp_dc_syr NUMERIC;
+UPDATE wwf_terr_ecos a SET tmp_dc_syr = b.tmp_dc_syr FROM basinatlas_v10_lev06 b WHERE a.hybas_id = b.hybas_id;
+
+
 ```
