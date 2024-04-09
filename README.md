@@ -614,8 +614,7 @@ SELECT count(*), c.name FROM countries c JOIN places p ON ST_Intersects(c.geom, 
 
 Intersects or nearest neighbor (very useful!)
 ```sql
-COALESCE((SELECT b.hybas_id FROM basinatlas_v10_lev06 b WHERE ST_Intersects(a.wkb_geometry, b.shape) LIMIT 1), (SELECT b.hybas_id FROM basinatlas_v10_lev06 b ORDER BY ST_Distance(a.wkb_geometry, b.shape) LIMIT 1));
-
+COALESCE((SELECT b.hybas_id FROM basinatlas_v10_lev06 b WHERE ST_Intersects(a.wkb_geometry, b.shape) LIMIT 1), (SELECT b.hybas_id FROM basinatlas_v10_lev06 b WHERE ST_Distance(a.wkb_geometry, b.shape) ORDER BY ST_Distance(a.wkb_geometry, b.shape) LIMIT 1));
 ```
 
 Disjoint  
@@ -1142,6 +1141,10 @@ UPDATE ne_10m_populated_places a SET continent = b.continent FROM ne_10m_admin_0
 # ecoregions from wwf (intersect or nearest neighbor)
 ALTER TABLE ne_10m_populated_places ADD COLUMN ecoregion text;
 UPDATE ne_10m_populated_places a SET ecoregion = COALESCE((SELECT b.eco_name FROM wwf_terr_ecos b WHERE ST_Intersects(a.geom, b.wkb_geometry)), (SELECT b.eco_name FROM wwf_terr_ecos b ORDER BY ST_Distance(a.geom, b.wkb_geometry) LIMIT 1));
+
+# hybas_id from hydroatlas
+ALTER TABLE ne_10m_populated_places ADD COLUMN hybas_id text;
+UPDATE ne_10m_populated_places a SET hybas_id = COALESCE((SELECT b.hybas_id FROM basinatlas_v10_lev12 b WHERE ST_Intersects(a.geom, b.shape)), (SELECT b.hybas_id FROM basinatlas_v10_lev12 b WHERE ST_DWithin(a.geom, b.shape,1) ORDER BY ST_Distance(a.geom, b.shape) LIMIT 1));
 ```
 
 Intersect with contours  
@@ -1313,8 +1316,6 @@ ALTER TABLE topo15_4320_ocean_halfbasins ADD COLUMN aspect_mean numeric;
 UPDATE topo15_4320_ocean_halfbasins a SET aspect_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320_aspect b WHERE ST_Intersects(b.rast, a.geom);
 ALTER TABLE topo15_4320_ocean_halfbasins ADD COLUMN accum_mean numeric;
 UPDATE topo15_4320_ocean_halfbasins a SET accum_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320_ocean_accum b WHERE ST_Intersects(b.rast, a.geom);
-
-
 ```
 
 ### Worldpop
@@ -1356,8 +1357,7 @@ Add hydroatlas columns
 ```sql
 # hybas_id
 ALTER TABLE wwf_terr_ecos ADD COLUMN hybas_id NUMERIC;
-UPDATE wwf_terr_ecos a SET hybas_id = b.hybas_id FROM basinatlas_v10_lev06 b WHERE ST_Intersects(a.wkb_geometry, b.shape);
-UPDATE wwf_terr_ecos a SET hybas_id = (SELECT b.hybas_id FROM basinatlas_v10_lev06 b WHERE a.hybas_id IS NULL ORDER BY ST_Distance(a.wkb_geometry, b.shape) LIMIT 1);
+UPDATE wwf_terr_ecos a SET hybas_id = COALESCE((SELECT b.hybas_id FROM basinatlas_v10_lev06 b WHERE ST_Intersects(a.wkb_geometry, b.shape)),(SELECT b.hybas_id FROM basinatlas_v10_lev06 b WHERE a.hybas_id IS NULL AND ST_Distance(a.geom, b.shape) ORDER BY ST_Distance(a.wkb_geometry, b.shape) LIMIT 1));
 
 # up_area
 ALTER TABLE wwf_terr_ecos ADD COLUMN up_area NUMERIC;
