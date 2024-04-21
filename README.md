@@ -996,7 +996,7 @@ ogr2ogr -f PostgreSQL PG:dbname=world RiverATLAS_v10.gdb RiverATLAS_v10
 ogr2ogr -f PostgreSQL PG:dbname=world -nlt PROMOTE_TO_MULTI BasinATLAS_v10.gdb
 ```
 
-Add dem, aspect to basins  
+Add dem, aspect to basins, rivers  
 ```shell
 # import rasters
 raster2pgsql -d -s 4326 -I -C -M -F -t 1x1 topo15_4320.tif topo15_4320 | psql -d world
@@ -1007,9 +1007,32 @@ for a in {01..12}; do
   psql -d world -c "ALTER TABLE basinatlas_v10_lev${a} ADD COLUMN dem_mean int; UPDATE basinatlas_v10_lev${a} a SET dem_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320 b WHERE ST_Intersects(b.rast, a.shape);"
   psql -d world -c "ALTER TABLE basinatlas_v10_lev${a} ADD COLUMN aspect_mean int; UPDATE basinatlas_v10_lev${a} a SET aspect_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320_aspect b WHERE ST_Intersects(b.rast, a.shape);"
 done
+
+# aspect to rivers
+psql -d world -c "ALTER TABLE riveratlas_v10_subunits ADD COLUMN aspect_mean int; UPDATE riveratlas_v10_subunits a SET aspect_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320_aspect b WHERE ST_Intersects(b.rast, a.shape);"
 ```
 
-Rivers  
+Intersect rivers and subunits  
+```shell
+# print columns
+echo $(psql -qAtX -d world -c '\d riveratlas_v10' | grep -v "shape" | sed -e 's/|.*//g' | paste -sd',')
+
+# intersection
+subunit='Thailand'
+psql -d world -c "CREATE TABLE riveratlas_v10_${subunit} AS SELECT $(echo $(psql -qAtX -d world -c '\d riveratlas_v10' | grep -v "shape" | sed -e 's/^/a./g' -e 's/|.*//g' | paste -sd',')), b.iso_a2, ST_Intersection(a.shape, b.geom) shape FROM riveratlas_v10 a, ne_10m_admin_0_map_subunits b WHERE ST_Intersects(a.shape, b.geom) AND b.name = '${subunit}';"
+psql -d world -c "ALTER TABLE riveratlas_v10_${subunit} ADD COLUMN fid serial PRIMARY KEY;"
+psql -d world -c "CREATE INDEX riveratlas_v10_${subunit}_gid ON riveratlas_v10_${subunit} USING GIST (shape);"
+```
+
+Intersect basins and hillshade  
+```shell
+lev=05
+psql -d world -c "CREATE TABLE basinatlas_v10_lev${lev}_voronoi_hillshade AS SELECT $(echo $(psql -qAtX -d world -c '\d basinatlas_v10_lev'"${lev}"'_voronoi' | grep -v "shape" | sed -e 's/^/a./g' -e 's/|.*//g' | paste -sd',')), ST_Intersection(a.shape, b.geom) shape FROM basinatlas_v10_lev${lev}_voronoi a, topo15_004_0004_hillshade b WHERE ST_Intersects(a.shape, b.geom);"
+# update raster stats
+psql -d world -c "UPDATE basinatlas_v10_lev${lev}_voronoi_hillshade a SET aspect_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320_aspect b WHERE ST_Intersects(b.rast, a.shape);"
+```
+
+Some river processing  
 ```sql
 # simplify
 CREATE TABLE riveratlas_v10_simple1 AS SELECT upland_skm, (ST_SimplifyVW(shape,1))::GEOMETRY(MultiLineString,4326) shape FROM riveratlas_v10;
@@ -1032,18 +1055,6 @@ CREATE TABLE riveratlas_v10_dissolve AS SELECT (ST_Dump(ST_Union(Shape))).geom::
 CREATE TABLE riveratlas_v10_dissolve AS SELECT (ST_Dump(ST_Union(Shape))).geom::GEOMETRY(LINESTRING,4326) geom FROM riveratlas_v10 GROUP BY tec_cl_cmj;
 ```
 
-Intersect rivers and subunit  
-```shell
-# list columns
-echo $(psql -qAtX -d world -c '\d riveratlas_v10' | grep -v "shape" | sed -e 's/|.*//g' | paste -sd',')
-
-# intersection
-subunit='Thailand'
-psql -d world -c "CREATE TABLE riveratlas_v10_${subunit} AS SELECT $(echo $(psql -qAtX -d world -c '\d riveratlas_v10' | grep -v "shape" | sed -e 's/^/a./g' -e 's/|.*//g' | paste -sd',')), b.iso_a2, ST_Intersection(a.shape, b.geom) shape FROM riveratlas_v10 a, ne_10m_admin_0_map_subunits b WHERE ST_Intersects(a.shape, b.geom) AND b.name = '${subunit}';"
-psql -d world -c "ALTER TABLE riveratlas_v10_${subunit} ADD COLUMN fid serial PRIMARY KEY;"
-psql -d world -c "CREATE INDEX riveratlas_v10_${subunit}_gid ON riveratlas_v10_${subunit} USING GIST (shape);"
-```
-
 Basins to voronoi polygons  
 ```shell
 a=06
@@ -1062,16 +1073,6 @@ psql -d world -c "CREATE TABLE basinatlas_v10_lev${a}_voronoi AS SELECT $(psql -
 # update raster stats
 psql -d world -c "UPDATE basinatlas_v10_lev${a}_voronoi a SET dem_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320 b WHERE ST_Intersects(b.rast, a.shape);"
 psql -d world -c "UPDATE basinatlas_v10_lev${a}_voronoi a SET aspect_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320_aspect b WHERE ST_Intersects(b.rast, a.shape);"
-```
-
-Intersect basins and hillshade  
-```shell
-CREATE TABLE basinatlas_v10_lev08_voronoi_hillshade AS SELECT $(echo $(psql -qAtX -d world -c '\d basinatlas_v10_lev08_voronoi' | grep -v "shape" | sed -e 's/^/a./g' -e 's/|.*//g' | paste -sd',')), ST_Intersection(a.shape, b.geom) shape FROM basinatlas_v10_lev08_voronoi a, topo15_004_0004_hillshade b WHERE ST_Intersects(a.shape, b.geom)
-```
-
-Clip dem by basin  
-```shell
-gdalwarp -s_srs 'EPSG:4326' -t_srs 'EPSG:4326' -crop_to_cutline -cutline 'PG:dbname=world' -csql "SELECT shape FROM basinatlas_v10_lev01" topo15_4320_43200.tif topo15_4320_43200_lev01.tif
 ```
 
 ### Koppen
@@ -1318,6 +1319,19 @@ ALTER TABLE topo15_4320_ocean_halfbasins ADD COLUMN accum_mean numeric;
 UPDATE topo15_4320_ocean_halfbasins a SET accum_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320_ocean_accum b WHERE ST_Intersects(b.rast, a.geom);
 ```
 
+Clip dem to hydroatlas basins  
+```shell
+gdalwarp -s_srs 'EPSG:4326' -t_srs 'EPSG:4326' -crop_to_cutline -cutline 'PG:dbname=world' -csql "SELECT shape FROM basinatlas_v10_lev01" topo15_4320_43200.tif topo15_4320_43200_lev01.tif
+```
+
+### Wikidata/Wikipedia
+
+Import wikidata query results into psql  
+```shell
+psql -d world -c "DROP TABLE IF EXISTS wiki_ecoregions; CREATE TABLE wiki_ecoregions($(head -1 ecoregions.tsv | sed -e 's/\t/ VARCHAR,/g' -e 's/$/ VARCHAR/g'));"
+psql -d world -c "\COPY wiki_ecoregions FROM 'ecoregions.tsv' WITH (FORMAT csv, DELIMITER E'\t', HEADER true);"
+```
+
 ### Worldpop
 
 Resample  
@@ -1366,6 +1380,4 @@ UPDATE wwf_terr_ecos a SET up_area = b.up_area FROM basinatlas_v10_lev06 b WHERE
 #temp
 ALTER TABLE wwf_terr_ecos ADD COLUMN tmp_dc_syr NUMERIC;
 UPDATE wwf_terr_ecos a SET tmp_dc_syr = b.tmp_dc_syr FROM basinatlas_v10_lev06 b WHERE a.hybas_id = b.hybas_id;
-
-
 ```
