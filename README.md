@@ -716,9 +716,14 @@ psql -d world -c "copy (select subregion, round(st_x(geom)), round(st_y(geom)) f
 done
 ```
 
-Text as polygons (using width_bucket to scale letters)  
+Text as polygons  
 ```sql
-DROP TABLE IF EXISTS ne_10m_admin_0_map_subunits_letters; CREATE TABLE ne_10m_admin_0_map_subunits_letters AS SELECT name, type, ST_SetSRID(ST_Translate(ST_Scale(ST_Letters(upper(name_en)), width_bucket(area,0,300,5)*0.01, width_bucket(area,0,300,5)*0.01), ST_XMIN(geom) + ((ST_X(ST_Centroid(geom))-ST_XMIN(geom))/2), ST_Y(ST_Centroid(geom))), 4326) geom FROM ne_10m_admin_0_map_subunits;
+# use st_letters
+DROP TABLE IF EXISTS places_letters; CREATE TABLE places_letters AS SELECT (ST_Translate(ST_Scale(ST_Letters(name), 0.01, 0.01),ST_X(ST_Centroid(geom)),ST_Y(ST_Centroid(geom))))::geometry(MULTIPOLYGON,4326) FROM ne_10m_populated_places;
+
+# use width_bucket to scale letters by area and translate to centroid
+DROP TABLE IF EXISTS ne_10m_admin_0_map_subunits_letters;
+CREATE TABLE ne_10m_admin_0_map_subunits_letters AS WITH b AS (SELECT name_en, type, ST_SetSRID(ST_Scale(ST_Letters(upper(name_en)), width_bucket(area,0,300,5)*0.005, width_bucket(area,0,300,5)*0.005), 4326) geom FROM ne_10m_admin_0_map_subunits) SELECT ST_Translate(b.geom, ST_X(ST_Centroid(a.geom)) - ST_X(ST_Centroid(b.geom)), ST_Y(ST_Centroid(a.geom))) FROM ne_10m_admin_0_map_subunits a, b WHERE a.name_en = b.name_en;
 ```
 
 ## Dataset examples
@@ -1026,10 +1031,13 @@ psql -d world -c "CREATE INDEX riveratlas_v10_${subunit}_gid ON riveratlas_v10_$
 
 Intersect basins and hillshade  
 ```shell
-lev=05
-psql -d world -c "CREATE TABLE basinatlas_v10_lev${lev}_voronoi_hillshade AS SELECT $(echo $(psql -qAtX -d world -c '\d basinatlas_v10_lev'"${lev}"'_voronoi' | grep -v "shape" | sed -e 's/^/a./g' -e 's/|.*//g' | paste -sd',')), ST_Intersection(a.shape, b.geom) shape FROM basinatlas_v10_lev${lev}_voronoi a, topo15_004_0004_hillshade b WHERE ST_Intersects(a.shape, b.geom);"
+lev=08
+psql -d world -c "CREATE TABLE basinatlas_v10_lev${lev}_hillshade AS SELECT $(echo $(psql -qAtX -d world -c "\d basinatlas_v10_lev${lev}" | grep -v "shape" | sed -e 's/^/a./g' -e 's/|.*//g' | paste -sd',')), ST_Intersection(a.shape, b.geom) shape FROM basinatlas_v10_lev${lev} a, topo15_004_0004_hillshade b WHERE ST_Intersects(a.shape, b.geom);"
 # update raster stats
-psql -d world -c "UPDATE basinatlas_v10_lev${lev}_voronoi_hillshade a SET aspect_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320_aspect b WHERE ST_Intersects(b.rast, a.shape);"
+psql -d world -c "UPDATE basinatlas_v10_lev${lev}_hillshade a SET aspect_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320_aspect b WHERE ST_Intersects(b.rast, a.shape);"
+# index
+psql -d world -c "ALTER TABLE basinatlas_v10_lev${lev}_hillshade ADD COLUMN fid serial PRIMARY KEY;"
+psql -d world -c "CREATE INDEX basinatlas_v10_lev${lev}_hillshade_gid ON basinatlas_v10_lev${lev}_hillshade USING GIST (shape);"
 ```
 
 Some river processing  
@@ -1045,14 +1053,20 @@ ALTER TABLE riveratlas_v10_simple1_upland_skm_100 ADD COLUMN fid serial PRIMARY 
 CREATE INDEX riveratlas_v10_simple1_upland_skm_100_gid ON riveratlas_v10_simple1_upland_skm_100 USING GIST (shape);
 
 # buffer
-CREATE TABLE riveratlas_v10_simple1_buffer_upland_skm_500 AS SELECT ST_Buffer(shape,width_bucket(upland_skm,0,1000,10)*0.005) geom FROM riveratlas_v10_simple1 WHERE upland_skm >= 500;
-CREATE TABLE riveratlas_v10_simple1_buffer_500_dissolve AS SELECT (ST_Dump(ST_Union(geom))).geom::GEOMETRY(POLYGON,4326) geom FROM riveratlas_v10_simple1_buffer_upland_skm_500;
+CREATE TEMP TABLE riveratlas_v10_simple1_buffer AS SELECT ST_Buffer(shape,width_bucket(upland_skm,0,1000,10)*0.005) geom FROM riveratlas_v10_simple1 WHERE upland_skm >= 500;
+CREATE TABLE riveratlas_v10_simple1_buffer500 AS SELECT (ST_Dump(ST_Union(geom))).geom::GEOMETRY(POLYGON,4326) geom FROM riveratlas_v10_simple1_buffer;
 
 # dissolve by basin
-CREATE TABLE riveratlas_v10_dissolve AS SELECT (ST_Dump(ST_Union(Shape))).geom::GEOMETRY(LINESTRING,4326) geom FROM riveratlas_v10 GROUP BY hybas_l12;
+CREATE TABLE riveratlas_v10_dissolve AS SELECT hybas_l12, (ST_Dump(ST_Union(Shape))).geom::GEOMETRY(LINESTRING,4326) geom FROM riveratlas_v10 GROUP BY hybas_l12;
 
 # dissolve by ecoregion
-CREATE TABLE riveratlas_v10_dissolve AS SELECT (ST_Dump(ST_Union(Shape))).geom::GEOMETRY(LINESTRING,4326) geom FROM riveratlas_v10 GROUP BY tec_cl_cmj;
+CREATE TABLE riveratlas_v10_dissolve AS SELECT tec_cl_cmj, (ST_Dump(ST_Union(Shape))).geom::GEOMETRY(LINESTRING,4326) geom FROM riveratlas_v10 GROUP BY tec_cl_cmj;
+```
+
+# dissolve by order
+```shell
+class=1
+psql -d world -c "DROP TABLE IF EXISTS riveratlas_v10_dissolve_class${class}; CREATE TABLE riveratlas_v10_dissolve_class${class} AS SELECT ord_clas, (ST_Union(Shape))::GEOMETRY(LINESTRING,4326) geom FROM riveratlas_v10 WHERE ord_clas = ${class} GROUP BY ord_clas;"
 ```
 
 Basins to voronoi polygons  
@@ -1180,7 +1194,7 @@ psql -d world -c "DROP TABLE IF EXISTS grid04_${table}; CREATE TABLE grid04_${ta
 Import points, lines, multilines & polygons from shell  
 ```shell
 # for hstore: -lco COLUMN_TYPES=other_tags=hstore
-osmfile=asean.vrt
+osmfile=Toronto.osm.pbf
 ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nln ${osmfile%.osm.pbf}_points PG:dbname=osm ${osmfile} points
 ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nln ${osmfile%.osm.pbf}_lines PG:dbname=osm ${osmfile} lines
 ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nlt promote_to_multi -nln ${osmfile%.osm.pbf}_multilines PG:dbname=osm ${osmfile} multilinestrings
