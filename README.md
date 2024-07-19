@@ -23,10 +23,8 @@ Create db
 CREATE USER steve;
 ALTER USER steve WITH SUPERUSER;
 createdb -O steve world
-```
 
-Add extensions  
-```sql
+# add posgtis extensions  
 CREATE EXTENSION postgis; CREATE EXTENSION postgis_topology; CREATE EXTENSION postgis_raster; CREATE EXTENSION postgis_sfcgal; CREATE EXTENSION hstore; CREATE extension tablefunc;
 ```
 
@@ -56,11 +54,18 @@ sudo systemctl restart postgresql
 
 Change versions (collation version mismatch)  
 ```shell
-db=us
+db=postgres
 pg_dump -U steve -d ${db} -F c -f your_database_dump.custom
 dropdb -U steve ${db}
 createdb -U steve -E UTF8 -T template0 --locale=en_US.utf8 ${db}
 pg_restore -U steve -d ${db} your_database_dump.custom
+
+# template1
+psql template1
+REINDEX DATABASE template1;
+ALTER DATABASE template1 REFRESH COLLATION VERSION;
+sudo systemctl restart postgresql
+
 ```
 
 ## Importing
@@ -265,6 +270,10 @@ Select hstore keys
 UPDATE planet_osm_polygon SET levels = (SELECT tags->'building:levels');
 
 SELECT other_tags FROM multipolygons WHERE other_tags LIKE '%construction%';
+
+SELECT hstore(other_tags)->'height' FROM toronto_polygons WHERE building IS NOT NULL AND hstore(other_tags)->'height' IS NOT NULL;
+
+SPLIT_PART(regexp_replace(hstore(other_tags)->'height', '[^0-9.]', '', 'g'), '.', 1)::INT
 ```
 
 Select boolean type  
@@ -307,6 +316,8 @@ UPDATE countryinfo a SET language1 = b.languagename FROM languagecodes b WHERE S
 Split + replace  
 ```sql
 SELECT wx, REGEXP_REPLACE(REGEXP_REPLACE(wx,'(\w\w)','\1 ','g'),' +',' ','g') FROM metar;
+
+SPLIT_PART(regexp_replace(hstore(other_tags)->'height', '[^0-9.]', '', 'g'), '.', 1)::INT
 ```
 
 Count  
@@ -427,7 +438,7 @@ Make valid
 UPDATE polygon_voronoi SET way = ST_MakeValid(way) WHERE NOT ST_IsValid(way);
 ```
 
-Get angle (degrees)  
+Get angle of line from start and end points (degrees)  
 ```sql
 SELECT ST_Azimuth(ST_Startpoint(way), ST_Endpoint(way))/(2*pi())*360 FROM planet_osm_line;
 ```
@@ -1194,7 +1205,7 @@ psql -d world -c "DROP TABLE IF EXISTS grid04_${table}; CREATE TABLE grid04_${ta
 Import points, lines, multilines & polygons from shell  
 ```shell
 # for hstore: -lco COLUMN_TYPES=other_tags=hstore
-osmfile=Toronto.osm.pbf
+osmfile=Seoul.osm.pbf
 ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nln ${osmfile%.osm.pbf}_points PG:dbname=osm ${osmfile} points
 ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nln ${osmfile%.osm.pbf}_lines PG:dbname=osm ${osmfile} lines
 ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nlt promote_to_multi -nln ${osmfile%.osm.pbf}_multilines PG:dbname=osm ${osmfile} multilinestrings
@@ -1234,6 +1245,12 @@ ALTER TABLE us_latest_lines_points ADD COLUMN fid serial primary key;
 CREATE INDEX us_latest_lines_points_gid ON us_latest_lines_points USING GIST (wkb_geometry);
 ```
 
+Buildings  
+```
+# get building heights or levels
+SELECT COALESCE(split_part(regexp_replace(hstore(other_tags)->'height', '[^0-9.]', '', 'g'), '.', 1)::INT, split_part(regexp_replace(hstore(other_tags)->'levels', '[^0-9.]', '', 'g'), '.', 1)::INT) FROM toronto_polygons WHERE building IS NOT NULL AND (hstore(other_tags)->'height' IS NOT NULL OR hstore(other_tags)->'levels' IS NOT NULL);
+```
+
 Parks
 ```sql
 # national and state parks
@@ -1258,6 +1275,11 @@ SELECT ST_Union(ST_Intersection(a.wkb_geometry,b.wkb_geometry)) wkb_geometry FRO
 CREATE TABLE bangkok_highway_buffer5 AS SELECT highway, (ST_Dump(ST_Union(ST_Buffer(wkb_geometry,5)))).geom::GEOMETRY(POLYGON,3857) wkb_geometry FROM bangkok_lines GROUP BY highway;
 ```
 
+Make line from start to end of yonge  
+```
+CREATE TABLE toronto_lines_yonge AS WITH polygon AS (SELECT ST_ConvexHull(wkb_geometry) geom FROM toronto_lines WHERE name = 'Yonge Street') SELECT ST_MakeLine((SELECT ST_PointN(ST_ExteriorRing(geom), ST_NumPoints(ST_ExteriorRing(geom))) FROM polygon WHERE ST_YMax(geom) = (SELECT MAX(ST_YMax(geom)) FROM polygon)), (SELECT ST_PointN(ST_ExteriorRing(geom), 1) FROM polygon WHERE ST_YMin(geom) = (SELECT MIN(ST_YMin(geom)) FROM polygon)));
+```
+
 Amenities  
 ```shell
 # count amenties by neighborhood
@@ -1272,7 +1294,7 @@ for geography in ${geographies[*]}; do
 done
 ```
 
-Export table of amenities with wikipedia tags by census geography (pop2020 > 100000)  
+Export table of amenities with wikipedia tags by census geography (pop2020 > 100000) to geojson
 ```shell
 psql -Aqt -d us -c "COPY (SELECT geoid, name from county2020 WHERE CAST(pop2020 AS INT) > 100000) TO STDOUT DELIMITER E'\t';" | while IFS=$'\t' read -a array; do
   psql -d us -c "COPY (SELECT jsonb_build_object('type', 'FeatureCollection', 'features', jsonb_agg(feature)) FROM (SELECT jsonb_build_object('type', 'Feature', 'id', osm_id, 'geometry', ST_AsGeoJSON(ST_Transform(wkb_geometry,4326))::jsonb, 'properties', to_jsonb(inputs) - 'wkb_geometry' - 'osm_id') AS feature FROM (SELECT name, other_tags, osm_id, wkb_geometry FROM points_amenity_county WHERE geoid = '${array[0]}' AND other_tags::text ILIKE '%wikipedia%') inputs) features) TO STDOUT;" > "${array[0]//[^a-zA-Z_0-9]/}"_"${array[1]//[^a-zA-Z_0-9]/}"_amenity_wikipedia.geojson
@@ -1313,7 +1335,7 @@ Add values
 ALTER TABLE topo15_4320_ocean_streams ADD COLUMN accum_mean numeric;
 UPDATE topo15_4320_ocean_streams a SET accum_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320_ocean_accum b WHERE ST_Intersects(b.rast, a.geom);
 
-# basins
+# ocean basins
 ALTER TABLE topo15_4320_ocean_basins ADD COLUMN dem_mean numeric;
 UPDATE topo15_4320_ocean_basins a SET dem_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320 b WHERE ST_Intersects(b.rast, a.geom);
 ALTER TABLE topo15_4320_ocean_basins ADD COLUMN aspect_mean numeric;
