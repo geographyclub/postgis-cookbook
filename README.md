@@ -365,6 +365,11 @@ cat /home/steve/Downloads/tmp/toronto_amenity.txt | while read line; do
 done
 ```
 
+Generate series  
+```
+SELECT highway, offset_value, ST_OffsetCurve(wkb_geometry, offset_value) wkb_geometry FROM toronto_highways, generate_series(-100, 100, 20) AS offset_value;
+```
+
 ## Spatial operations
 
 Print available epsg/srid  
@@ -431,6 +436,11 @@ Translate
 ```sql
 ALTER TABLE metar_20180320_183305 ADD COLUMN translated geometry(Point,4326);
 UPDATE metar_20180320_183305 SET translated=ST_SetSrid(ST_Translate(geom,0.1,0),4326);
+```
+
+Make 3d  
+```
+ALTER TABLE grid1 ALTER COLUMN geom TYPE geometry(PolygonZ, 4326) USING ST_Force3D(geom);
 ```
 
 Make valid  
@@ -650,7 +660,11 @@ UPDATE basinatlas_v10_lev${a} a SET dem_mean = (ST_SummaryStats(rast)).mean FROM
 Make line
 ```sql
 CREATE TABLE ne_10m_populated_places_lines AS SELECT fid, name, scalerank, ST_Segmentize(ST_MakeLine(ST_Translate(geom,-10,0), ST_Translate(geom,10,0)),1)::geometry(linestring,4326) geom FROM ne_10m_populated_places;
+```
 
+Offset curve  
+```
+CREATE TABLE toronto_highways_offset AS SELECT highway, offset_value, (ST_OffsetCurve(wkb_geometry, offset_value))::geometry(MULTILINESTRING, 3857) wkb_geometry FROM toronto_highways, generate_series(-100, 100, 20) AS offset_value;
 ```
 
 Make extent/envelope  
