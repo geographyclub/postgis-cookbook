@@ -267,7 +267,7 @@ SELECT DISTINCT skeys(hstore(tags)) FROM planet_osm_polygon;
 
 Select hstore keys  
 ```sql
-UPDATE planet_osm_polygon SET levels = (SELECT tags->'building:levels');
+UPDATE planet_osm_polygon SET levels = (SELECT tags -> 'building:levels');
 
 SELECT other_tags FROM multipolygons WHERE other_tags LIKE '%construction%';
 
@@ -492,7 +492,7 @@ psql -d world -c ""
 CREATE TABLE 
 ST_ChaikinSmoothing
 
-# buffer hack
+# smooth with buffer hack
 UPDATE countries_labels_3857 a SET geom = ST_Buffer(ST_Buffer(b.geom,10000),-10000) FROM countries_3857 b WHERE a.fid = b.fid;
 ```
 
@@ -535,11 +535,15 @@ Buffers
 # simple
 UPDATE places_voronoi_buffer1 SET geom = st_buffer(geom, 1, 'endcap=square join=miter');
 
-# multibuffers
+# variable width
+DROP TABLE IF EXISTS riveratlas_v10_buffer; CREATE TABLE riveratlas_v10_buffer AS WITH buffer AS (SELECT ST_Buffer(shape,width_bucket(upland_skm,0,1000,5)*0.003) geom FROM riveratlas_v10_simple1 WHERE upland_skm >= 500) SELECT (ST_Dump(ST_Union(geom))).geom::GEOMETRY(POLYGON,4326) geom FROM buffer;
+
+# multiple buffers with union
 CREATE TABLE places_buffers AS SELECT a.name, '0' AS buffer, b.geom FROM places a, grid02 b WHERE ST_Intersects(a.geom, b.geom) UNION SELECT a.name, '01' AS buffer, b.geom FROM places a, grid02 b WHERE ST_Intersects(ST_Buffer(a.geom,0.1), b.geom);
 
-# variable width buffers
-CREATE TABLE riveratlas_v10_simple1_buffer_1000 AS WITH buffer AS (SELECT ST_Buffer(shape,width_bucket(upland_skm,0,10000,10)*0.005) geom FROM riveratlas_v10_simple1 WHERE upland_skm >= 1000) SELECT (ST_Dump(ST_Union(geom))).geom::GEOMETRY(POLYGON,4326) geom FROM buffer;
+# multiple buffers with cte
+CREATE TABLE riveratlas_v10_buffer AS WITH buffer AS (SELECT series.width, ST_Buffer(shape,width_bucket(upland_skm,0,10000,10) * width) geom FROM riveratlas_v10_simple1, generate_series(0.005, 0.01, 0.005) AS series(width) WHERE upland_skm >= 1000) SELECT width, (ST_Dump(ST_Union(geom))).geom::GEOMETRY(POLYGON,4326) geom FROM buffer GROUP BY width;
+
 ```
 
 Dissolve/union  
@@ -694,6 +698,9 @@ CREATE TABLE grid0001 AS SELECT (ST_PixelAsPolygons(ST_AddBand(ST_MakeEmptyRaste
 Make triangles  
 ```sql
 # voronoi
+CREATE TABLE points01_translated_voronoi AS WITH voronoi AS (SELECT (ST_Dump(ST_VoronoiPolygons(ST_Collect(geom)))).geom::GEOMETRY(POLYGON,4326) geom FROM points01_translated) SELECT a.id, a.dem, voronoi.geom FROM points01_translated a, voronoi WHERE ST_Intersects(a.geom, voronoi.geom);
+
+# voronoi
 CREATE TABLE basinatlas_v10_lev06_voronoi AS WITH a AS (SELECT (ST_Dump(ST_VoronoiPolygons(ST_Collect(ST_Centroid(shape))))).geom::GEOMETRY(POLYGON,4326) shape FROM basinatlas_v10_lev06) SELECT objectid,up_area,dem_mean,aspect_mean,a.shape FROM a, basinatlas_v10_lev06 b WHERE ST_Intersects(ST_Centroid(a.shape), b.shape);
 
 # delaunay triangles
@@ -710,6 +717,11 @@ ALTER TABLE geonames_delaunay_thailand ADD COLUMN dem_mean int;
 UPDATE geonames_delaunay_thailand a SET dem_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320 b WHERE ST_Intersects(b.rast, a.geom);
 ALTER TABLE geonames_delaunay_thailand ADD COLUMN aspect_mean int;
 UPDATE geonames_delaunay_thailand a SET aspect_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320_aspect b WHERE ST_Intersects(b.rast, a.geom);
+```
+
+Tesselate  
+```sql
+SELECT ST_Tessellate(wkb_geometry) wkb_geometry FROM labels_4320;
 ```
 
 Polygonize  
@@ -749,6 +761,11 @@ DROP TABLE IF EXISTS places_letters; CREATE TABLE places_letters AS SELECT (ST_T
 # use width_bucket to scale letters by area and translate to centroid
 DROP TABLE IF EXISTS ne_10m_admin_0_map_subunits_letters;
 CREATE TABLE ne_10m_admin_0_map_subunits_letters AS WITH b AS (SELECT name_en, type, ST_SetSRID(ST_Scale(ST_Letters(upper(name_en)), width_bucket(area,0,300,5)*0.005, width_bucket(area,0,300,5)*0.005), 4326) geom FROM ne_10m_admin_0_map_subunits) SELECT ST_Translate(b.geom, ST_X(ST_Centroid(a.geom)) - ST_X(ST_Centroid(b.geom)), ST_Y(ST_Centroid(a.geom))) FROM ne_10m_admin_0_map_subunits a, b WHERE a.name_en = b.name_en;
+```
+
+Subdivide polygons  
+```sql
+DROP TABLE IF EXISTS labels_subdivide_4320; CREATE TABLE labels_subdivide_4320 AS SELECT ST_Subdivide(wkb_geometry,5) wkb_geometry FROM labels_4320;
 ```
 
 ## Dataset examples
@@ -986,6 +1003,13 @@ Export ASEAN countryinfo in json
 psql -d world -t -A -c "SELECT jsonb_agg(row_to_json(countryinfo)) FROM countryinfo WHERE country IN ('Brunei','Cambodia','Indonesia','Laos','Malaysia','Myanmar','Philippines','Singapore','Thailand','Vietnam');" > ~/test/json/asean_countryinfo.json
 ```
 
+Create snapped points for every letter (for ascii labels)  
+```sql
+CREATE TABLE geonames_p_letters AS SELECT SUBSTRING(asciiname FROM offset_value for 1) letter, population, ST_SetSRID(ST_MakePoint(ROUND(ST_X(geom)::numeric,1) + (offset_value * 0.1), ROUND(ST_Y(geom)::numeric,1)), 4326) geom FROM geonames_p, generate_series(1,LENGTH(asciiname),1) AS offset_value WHERE population > 0;
+ALTER TABLE geonames_p_letters ADD COLUMN fid serial PRIMARY KEY;
+CREATE INDEX geonames_p_letters_gid ON geonames_p_letters USING GIST (geom);
+```
+
 ### GHCN
 
 Prep files  
@@ -1096,17 +1120,17 @@ psql -d world -c "DROP TABLE IF EXISTS riveratlas_v10_dissolve_class${class}; CR
 
 Basins to voronoi polygons  
 ```shell
-a=04
+a=12
 psql -d world -c "DROP TABLE IF EXISTS basinatlas_v10_lev${a}_voronoi;"
 psql -d world -c "CREATE TABLE basinatlas_v10_lev${a}_voronoi AS SELECT * FROM basinatlas_v10_lev${a};"
 psql -d world -c "ALTER TABLE basinatlas_v10_lev${a}_voronoi ALTER COLUMN shape TYPE geometry;"
 psql -d world -c "UPDATE basinatlas_v10_lev${a}_voronoi SET shape = ST_Centroid(shape);"
-psql -d world -c "WITH a AS (SELECT (ST_Dump(ST_VoronoiPolygons(ST_Collect(shape)))).geom::GEOMETRY(POLYGON,4326) shape FROM basinatlas_v10_lev${a}_voronoi) UPDATE basinatlas_v10_lev${a}_voronoi b SET shape =  ST_Intersection(a.shape, c.shape) FROM a, basinatlas_v10_lev01 c WHERE ST_Intersects(a.shape,b.shape) AND ST_Intersects(a.shape, c.shape);"
+psql -d world -c "WITH voronoi AS (SELECT (ST_Dump(ST_VoronoiPolygons(ST_Collect(shape)))).geom::GEOMETRY(POLYGON,4326) shape FROM basinatlas_v10_lev${a}_voronoi) UPDATE basinatlas_v10_lev${a}_voronoi a SET shape = voronoi.shape FROM voronoi, basinatlas_v10_lev01 c WHERE ST_Intersects(a.geom, voronoi.geom) AND ST_Intersects(a.geom, c.geom)"
 psql -d world -c "ALTER TABLE basinatlas_v10_lev${a}_voronoi ALTER COLUMN shape TYPE geometry(POLYGON,4326);"
 psql -d world -c "ALTER TABLE basinatlas_v10_lev${a}_voronoi ADD COLUMN fid serial PRIMARY KEY;"
 psql -d world -c "CREATE INDEX basinatlas_v10_lev${a}_voronoi_gid ON basinatlas_v10_lev${a}_voronoi USING GIST (shape);"
 
-# update raster stats
+# update raster stats (if necessary, basin already has ele)
 psql -d world -c "UPDATE basinatlas_v10_lev${a}_voronoi a SET dem_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320 b WHERE ST_Intersects(b.rast, a.shape);"
 psql -d world -c "UPDATE basinatlas_v10_lev${a}_voronoi a SET aspect_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320_aspect b WHERE ST_Intersects(b.rast, a.shape);"
 ```
@@ -1219,7 +1243,7 @@ psql -d world -c "DROP TABLE IF EXISTS grid04_${table}; CREATE TABLE grid04_${ta
 Import points, lines, multilines & polygons from shell  
 ```shell
 # for hstore: -lco COLUMN_TYPES=other_tags=hstore
-osmfile=Seoul.osm.pbf
+osmfile=Tokyo.osm.pbf
 ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nln ${osmfile%.osm.pbf}_points PG:dbname=osm ${osmfile} points
 ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nln ${osmfile%.osm.pbf}_lines PG:dbname=osm ${osmfile} lines
 ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nlt promote_to_multi -nln ${osmfile%.osm.pbf}_multilines PG:dbname=osm ${osmfile} multilinestrings
@@ -1277,7 +1301,7 @@ Transportation
 SELECT name, other_tags FROM bangkok_points WHERE other_tags LIKE '%"public_transport"=>"station"%';
 
 # create table of subways stations
-CREATE TABLE bangkok_subway_stations AS SELECT * FROM bangkok_points WHERE other_tags LIKE '%station"=>"subway"%';
+CREATE TABLE bangkok_points_subway AS SELECT * FROM bangkok_points WHERE other_tags LIKE '%station"=>"subway"%';
 
 # dissolve highways by name
 CREATE TABLE bangkok_highway_dissolve AS SELECT name, highway, ST_Union(wkb_geometry) wkb_geometry FROM bangkok_lines GROUP BY name, highway; 
