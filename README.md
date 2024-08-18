@@ -989,6 +989,12 @@ Filter
 ```sql
 # by countrycode
 CREATE TABLE geonames_th AS SELECT * FROM geonames WHERE countrycode = 'TH';
+
+# by featurecode
+CREATE TABLE geonames_t AS SELECT * FROM geonames WHERE featureclass = 'T';
+ALTER TABLE geonames_t drop column fid;
+ALTER TABLE geonames_t ADD COLUMN fid serial PRIMARY KEY;
+CREATE INDEX geonames_t_gid ON geonames_p USING GIST (geom);
 ```
 
 Export  
@@ -1003,9 +1009,10 @@ Export ASEAN countryinfo in json
 psql -d world -t -A -c "SELECT jsonb_agg(row_to_json(countryinfo)) FROM countryinfo WHERE country IN ('Brunei','Cambodia','Indonesia','Laos','Malaysia','Myanmar','Philippines','Singapore','Thailand','Vietnam');" > ~/test/json/asean_countryinfo.json
 ```
 
-Create snapped points for every letter (for ascii labels)  
+Create snapped points by letter (for ascii labels)  
 ```sql
-CREATE TABLE geonames_p_letters AS SELECT SUBSTRING(asciiname FROM offset_value for 1) letter, population, ST_SetSRID(ST_MakePoint(ROUND(ST_X(geom)::numeric,1) + (offset_value * 0.1), ROUND(ST_Y(geom)::numeric,1)), 4326) geom FROM geonames_p, generate_series(1,LENGTH(asciiname),1) AS offset_value WHERE population > 0;
+DROP TABLE IF EXISTS geonames_p_letters;
+CREATE TABLE geonames_p_letters AS SELECT name, SUBSTRING(asciiname FROM offset_value for 1) letter, population, dem, lat, lon, geonameid, featurecode, countrycode, scalerank, ST_SetSRID(ST_MakePoint(ROUND(ST_X(geom)::numeric,1) + (offset_value * 0.1), ROUND(ST_Y(geom)::numeric,1)), 4326) geom FROM geonames_p, generate_series(1,LENGTH(asciiname),1) AS offset_value WHERE population > 0;
 ALTER TABLE geonames_p_letters ADD COLUMN fid serial PRIMARY KEY;
 CREATE INDEX geonames_p_letters_gid ON geonames_p_letters USING GIST (geom);
 ```
@@ -1268,6 +1275,9 @@ SELECT other_tags FROM multipolygons WHERE other_tags LIKE '%construction%';
 
 # select keys and values
 SELECT key_value_pair, COUNT(*) AS key_count FROM (SELECT other_tags, key_value[1] || ' => ' || key_value[2] AS key_value_pair FROM (SELECT other_tags, regexp_split_to_array(other_tags, '=>') AS key_value FROM us_latest_points WHERE other_tags IS NOT NULL) AS subquery) AS subquery2 GROUP BY key_value_pair ORDER BY key_count DESC;
+
+# order by distinct landuse
+SELECT landuse, COUNT(landuse) FROM toronto_polygons WHERE landuse IS NOT NULL GROUP BY landuse ORDER BY COUNT(landuse) DESC;
 ```
 
 Add useful columns  
