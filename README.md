@@ -682,16 +682,16 @@ CREATE TABLE worldatlas_extent_polygons AS SELECT longitude, latitude, x_min, x_
 
 Make grid  
 ```sql
-# with ST_SquareGrid
+# ST_SquareGrid
 CREATE TABLE grid02 AS SELECT (ST_SquareGrid(0.2, ST_SetSRID(ST_Envelope('POLYGON((-180 -90, -180 90, 180 90, 180 -90, -180 -90))'::geometry), 4326))).geom::(POLYGON,4326) geom;
-# bonus: add raster stats
-ALTER TABLE grid02 ADD COLUMN dem_mean int; UPDATE grid02 a SET dem_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320 b WHERE ST_Intersects(b.rast, a.geom);
-ALTER TABLE grid02 ADD COLUMN aspect_mean int; UPDATE grid02 a SET aspect_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320_aspect b WHERE ST_Intersects(b.rast, a.geom);
 
-# with ST_PixelAsPolygons
+# ST_SquareGrid with extent from table
+SELECT (ST_SquareGrid(2000, ST_MakeEnvelope(ST_XMin(extent), ST_YMin(extent), ST_XMax(extent), ST_YMax(extent), ST_SRID(extent)))).geom AS geom FROM (SELECT ST_Extent(wkb_geometry) AS extent FROM toronto_polygons) AS subquery;
+
+# ST_PixelAsPolygons
 CREATE TABLE grid1 AS SELECT (ST_PixelAsPolygons(ST_AddBand(ST_MakeEmptyRaster(360,180,0,0,1,1,0,0,4326), '8BSI'::text, 1, 0), 1, false)).geom::geometry(Polygon,4326) AS geom;
 
-# select extent
+# ST_PixelAsPolygons with extent
 CREATE TABLE grid0001 AS SELECT (ST_PixelAsPolygons(ST_AddBand(ST_MakeEmptyRaster((SELECT ((ST_XMax(ST_Extent(way))-ST_XMin(ST_Extent(way)))/0.001)::numeric::integer FROM planet_osm_polygon), (SELECT ((ST_YMax(ST_Extent(way))-ST_YMin(ST_Extent(way)))/0.001)::numeric::integer FROM planet_osm_polygon), (SELECT ST_XMin(ST_Extent(way)) FROM planet_osm_polygon), (SELECT ST_YMin(ST_Extent(way)) FROM planet_osm_polygon), 0.001, 0.001, 0, 0, 4326), '8BSI'::text, 1, 0), 1, false)).geom::geometry(Polygon,4326) AS geom;
 ```
 
@@ -1365,6 +1365,11 @@ CREATE TABLE phuket_points AS SELECT a.id, a.osm_id, a.name, a.barrier, a.highwa
 CREATE TABLE phuket_lines AS SELECT a.id, a.osm_id, a.name, a.highway, a.waterway, a.aerialway, a.barrier, a.man_made, a.railway, a.z_order, a.other_tags, ST_Intersection(a.geom, b.geom) geom FROM thailand_lines a, thailand_polygons b WHERE b.other_tags LIKE '%Ko Phuket%' AND ST_Intersects(a.geom, b.geom);
 # phuket polygons
 CREATE TABLE phuket_polygons AS WITH b AS (SELECT geom FROM thailand_polygons WHERE other_tags LIKE '%Ko Phuket%') SELECT a.id, a.osm_id, a.osm_way_id, a.name, a.type, a.aeroway, a.amenity, a.admin_level, a.barrier, a.boundary, a.building, a.craft, a.geological, a.historic, a.land_area, a.landuse, a.leisure, a.man_made, a.military, a.natural, a.office, a.place, a.shop, a.sport, a.tourism, a.other_tags, ST_Intersection(a.geom, b.geom) geom FROM thailand_polygons a, b WHERE ST_Intersects(a.geom, b.geom);
+```
+
+Create grid from extent  
+```
+DROP TABLE IF EXISTS toronto_grid; CREATE TABLE toronto_grid AS SELECT (ST_SquareGrid(100, ST_MakeEnvelope(ST_XMin(extent), ST_YMin(extent), ST_XMax(extent), ST_YMax(extent), ST_SRID(extent)))).geom::geometry(POLYGON,3857) AS geom FROM (SELECT ST_Extent(wkb_geometry) AS extent FROM toronto_polygons) AS subquery;
 ```
 
 ### SRTM
