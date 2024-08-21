@@ -1119,7 +1119,7 @@ CREATE TABLE riveratlas_v10_dissolve AS SELECT hybas_l12, (ST_Dump(ST_Union(Shap
 CREATE TABLE riveratlas_v10_dissolve AS SELECT tec_cl_cmj, (ST_Dump(ST_Union(Shape))).geom::GEOMETRY(LINESTRING,4326) geom FROM riveratlas_v10 GROUP BY tec_cl_cmj;
 ```
 
-# dissolve by order
+Dissolve by order  
 ```shell
 class=1
 psql -d world -c "DROP TABLE IF EXISTS riveratlas_v10_dissolve_class${class}; CREATE TABLE riveratlas_v10_dissolve_class${class} AS SELECT ord_clas, (ST_Union(Shape))::GEOMETRY(LINESTRING,4326) geom FROM riveratlas_v10 WHERE ord_clas = ${class} GROUP BY ord_clas;"
