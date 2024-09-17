@@ -112,6 +112,11 @@ Copy table to table
 CREATE TABLE ne_10m_admin_0_countries_3857 AS TABLE ne_10m_admin_0_countries;
 ```
 
+Remove style info  
+```sql
+DELETE FROM public.layer_styles WHERE f_table_schema = 'public' AND f_table_name = 'toronto_polygons';
+```
+
 ## Exporting
 
 Export to svg, one file per feature  
@@ -175,6 +180,16 @@ psql -d world - c "SELECT jsonb_pretty(jsonb_agg(row_to_json(countryinfo))) FROM
 
 # export single line
 psql -d world - c "SELECT jsonb_agg(row_to_json(countryinfo)) FROM countryinfo WHERE country IN ('Brunei','Cambodia','Indonesia','Laos','Malaysia','Myanmar','Philippines','Singapore','Thailand','Vietnam');" > asean_countryinfo.json
+```
+
+HTML table  
+```shell
+psql --html -d us -c "SELECT * FROM (SELECT DENSE_RANK() OVER (ORDER BY a.pop::int DESC) rank, a.name, b.name AS state, a.pop, a.zscore_1_65 FROM place2022 a, state2022 b WHERE SUBSTRING(a.geoid,1,2) = b.geoid) stats WHERE rank <= 100;" > tables/place2022_zscore.html
+```
+
+Markdown  
+```shell
+psql -d us -c "SELECT * FROM (SELECT DENSE_RANK() OVER (ORDER BY a.pop::int DESC) rank, a.name, b.name AS state, a.pop, a.zscore_1_65 FROM place2022 a, state2022 b WHERE SUBSTRING(a.geoid,1,2) = b.geoid) stats WHERE rank <= 100;" | sed -e 's/-+-/-\|-/g' -e 's/^/\|/g' -e 's/$/\|/g' -e "s/||//g" | grep -v 'rows)|' > tables/place2022_zscore.md
 ```
 
 ## Basic operations
@@ -543,7 +558,6 @@ CREATE TABLE places_buffers AS SELECT a.name, '0' AS buffer, b.geom FROM places 
 
 # multiple buffers with cte
 CREATE TABLE riveratlas_v10_buffer AS WITH buffer AS (SELECT series.width, ST_Buffer(shape,width_bucket(upland_skm,0,10000,10) * width) geom FROM riveratlas_v10_simple1, generate_series(0.005, 0.01, 0.005) AS series(width) WHERE upland_skm >= 1000) SELECT width, (ST_Dump(ST_Union(geom))).geom::GEOMETRY(POLYGON,4326) geom FROM buffer GROUP BY width;
-
 ```
 
 Dissolve/union  
@@ -1122,7 +1136,7 @@ CREATE TABLE riveratlas_v10_dissolve AS SELECT tec_cl_cmj, (ST_Dump(ST_Union(Sha
 Dissolve by order  
 ```shell
 class=1
-psql -d world -c "DROP TABLE IF EXISTS riveratlas_v10_dissolve_class${class}; CREATE TABLE riveratlas_v10_dissolve_class${class} AS SELECT ord_clas, (ST_Union(Shape))::GEOMETRY(LINESTRING,4326) geom FROM riveratlas_v10 WHERE ord_clas = ${class} GROUP BY ord_clas;"
+psql -d world -c "DROP TABLE IF EXISTS riveratlas_v10_class${class}; CREATE TABLE riveratlas_v10_class${class} AS SELECT ord_clas, (ST_Dump(ST_Union(Shape))).geom::GEOMETRY(LINESTRING,4326) geom FROM riveratlas_v10 WHERE ord_clas = ${class} GROUP BY ord_clas;"
 ```
 
 Basins to voronoi polygons  
@@ -1243,6 +1257,12 @@ Create grid from layer
 table=ne_10m_railroads
 columns=$(psql -AtqX -d world -c "SELECT string_agg(column_name, ', ' order by ordinal_position) as columns FROM information_schema.columns WHERE table_name = '${table}' AND column_name NOT IN ('geom','shape','geometry') GROUP BY table_name;")
 psql -d world -c "DROP TABLE IF EXISTS grid04_${table}; CREATE TABLE grid04_${table} AS SELECT ${columns}, ST_SnapToGrid(ST_Segmentize(geom, 0.8), 0.4) geom FROM ${table};"
+```
+
+Create circles from places  
+```sql
+DROP TABLE IF EXISTS ne_10m_populated_places_circles;
+CREATE TABLE ne_10m_populated_places_circles AS SELECT name, scalerank, ST_Buffer(ST_Centroid(geom), width_bucket(scalerank,10,0,10)*0.05) geom FROM ne_10m_populated_places;
 ```
 
 ### OpenStreetMap
@@ -1370,6 +1390,12 @@ CREATE TABLE phuket_polygons AS WITH b AS (SELECT geom FROM thailand_polygons WH
 Create grid from extent  
 ```
 DROP TABLE IF EXISTS toronto_grid; CREATE TABLE toronto_grid AS SELECT (ST_SquareGrid(100, ST_MakeEnvelope(ST_XMin(extent), ST_YMin(extent), ST_XMax(extent), ST_YMax(extent), ST_SRID(extent)))).geom::geometry(POLYGON,3857) AS geom FROM (SELECT ST_Extent(wkb_geometry) AS extent FROM toronto_polygons) AS subquery;
+```
+
+Neighbourhoods  
+```
+# create neighborhood points for atlas
+CREATE TABLE toronto_points_atlas AS SELECT name, wkb_geometry FROM toronto_points WHERE place IN ('neighbourhood');
 ```
 
 ### SRTM
