@@ -182,6 +182,12 @@ psql -d world - c "SELECT jsonb_pretty(jsonb_agg(row_to_json(countryinfo))) FROM
 psql -d world - c "SELECT jsonb_agg(row_to_json(countryinfo)) FROM countryinfo WHERE country IN ('Brunei','Cambodia','Indonesia','Laos','Malaysia','Myanmar','Philippines','Singapore','Thailand','Vietnam');" > asean_countryinfo.json
 ```
 
+Export to geojson  
+```shell
+# convert 3857 to 4326
+psql -d osm -t -A -c "COPY (SELECT json_build_object('type', 'FeatureCollection', 'features', json_agg(json_build_object('type', 'Feature', 'geometry', ST_AsGeoJSON(geom)::json, 'properties', json_build_object('name', name, 'other_tags', other_tags)))) FROM (WITH extent AS (SELECT ST_Transform(ST_SetSRID(ST_Envelope('LINESTRING(-79.40926551818849 43.660405303140934, -79.38926696777345 43.65087315871548)'::geometry),4326),3857) geom) SELECT name, other_tags, ST_Transform(wkb_geometry,4326) geom FROM toronto_polygons, extent WHERE other_tags IS NOT NULL AND ST_Intersects(wkb_geometry,extent.geom)) tags) TO STDOUT;"
+```
+
 HTML table  
 ```shell
 psql --html -d us -c "SELECT * FROM (SELECT DENSE_RANK() OVER (ORDER BY a.pop::int DESC) rank, a.name, b.name AS state, a.pop, a.zscore_1_65 FROM place2022 a, state2022 b WHERE SUBSTRING(a.geoid,1,2) = b.geoid) stats WHERE rank <= 100;" > tables/place2022_zscore.html
@@ -714,9 +720,6 @@ Make triangles
 # voronoi
 CREATE TABLE points01_translated_voronoi AS WITH voronoi AS (SELECT (ST_Dump(ST_VoronoiPolygons(ST_Collect(geom)))).geom::GEOMETRY(POLYGON,4326) geom FROM points01_translated) SELECT a.id, a.dem, voronoi.geom FROM points01_translated a, voronoi WHERE ST_Intersects(a.geom, voronoi.geom);
 
-# voronoi
-CREATE TABLE basinatlas_v10_lev06_voronoi AS WITH a AS (SELECT (ST_Dump(ST_VoronoiPolygons(ST_Collect(ST_Centroid(shape))))).geom::GEOMETRY(POLYGON,4326) shape FROM basinatlas_v10_lev06) SELECT objectid,up_area,dem_mean,aspect_mean,a.shape FROM a, basinatlas_v10_lev06 b WHERE ST_Intersects(ST_Centroid(a.shape), b.shape);
-
 # delaunay triangles
 CREATE TABLE places_delaunay AS SELECT (ST_Dump(ST_DelaunayTriangles(ST_Union(geom),0.001,1))).geom::geometry(LINESTRING,4326) AS geom FROM places;
 
@@ -1141,19 +1144,8 @@ psql -d world -c "DROP TABLE IF EXISTS riveratlas_v10_class${class}; CREATE TABL
 
 Basins to voronoi polygons  
 ```shell
-a=12
-psql -d world -c "DROP TABLE IF EXISTS basinatlas_v10_lev${a}_voronoi;"
-psql -d world -c "CREATE TABLE basinatlas_v10_lev${a}_voronoi AS SELECT * FROM basinatlas_v10_lev${a};"
-psql -d world -c "ALTER TABLE basinatlas_v10_lev${a}_voronoi ALTER COLUMN shape TYPE geometry;"
-psql -d world -c "UPDATE basinatlas_v10_lev${a}_voronoi SET shape = ST_Centroid(shape);"
-psql -d world -c "WITH voronoi AS (SELECT (ST_Dump(ST_VoronoiPolygons(ST_Collect(shape)))).geom::GEOMETRY(POLYGON,4326) shape FROM basinatlas_v10_lev${a}_voronoi) UPDATE basinatlas_v10_lev${a}_voronoi a SET shape = voronoi.shape FROM voronoi, basinatlas_v10_lev01 c WHERE ST_Intersects(a.geom, voronoi.geom) AND ST_Intersects(a.geom, c.geom)"
-psql -d world -c "ALTER TABLE basinatlas_v10_lev${a}_voronoi ALTER COLUMN shape TYPE geometry(POLYGON,4326);"
-psql -d world -c "ALTER TABLE basinatlas_v10_lev${a}_voronoi ADD COLUMN fid serial PRIMARY KEY;"
-psql -d world -c "CREATE INDEX basinatlas_v10_lev${a}_voronoi_gid ON basinatlas_v10_lev${a}_voronoi USING GIST (shape);"
-
-# update raster stats (if necessary, basin already has ele)
-psql -d world -c "UPDATE basinatlas_v10_lev${a}_voronoi a SET dem_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320 b WHERE ST_Intersects(b.rast, a.shape);"
-psql -d world -c "UPDATE basinatlas_v10_lev${a}_voronoi a SET aspect_mean = (ST_SummaryStats(rast)).mean FROM topo15_4320_aspect b WHERE ST_Intersects(b.rast, a.shape);"
+# voronoi
+CREATE TABLE basinatlas_v10_lev06_voronoi AS WITH a AS (SELECT (ST_Dump(ST_VoronoiPolygons(ST_Collect(ST_Centroid(shape))))).geom::GEOMETRY(POLYGON,4326) shape FROM basinatlas_v10_lev06) SELECT objectid, up_area, dem_mean, aspect_mean, a.shape FROM a JOIN LATERAL (SELECT b.objectid, b.up_area, b.dem_mean, b.aspect_mean, b.shape FROM basinatlas_v10_lev06 b ORDER BY ST_Centroid(a.shape) <-> b.shape LIMIT 1) b ON true;
 ```
 
 ### Koppen
@@ -1388,14 +1380,20 @@ CREATE TABLE phuket_polygons AS WITH b AS (SELECT geom FROM thailand_polygons WH
 ```
 
 Create grid from extent  
-```
+```sql
 DROP TABLE IF EXISTS toronto_grid; CREATE TABLE toronto_grid AS SELECT (ST_SquareGrid(100, ST_MakeEnvelope(ST_XMin(extent), ST_YMin(extent), ST_XMax(extent), ST_YMax(extent), ST_SRID(extent)))).geom::geometry(POLYGON,3857) AS geom FROM (SELECT ST_Extent(wkb_geometry) AS extent FROM toronto_polygons) AS subquery;
 ```
 
 Neighbourhoods  
-```
+```sql
 # create neighborhood points for atlas
 CREATE TABLE toronto_points_atlas AS SELECT name, wkb_geometry FROM toronto_points WHERE place IN ('neighbourhood');
+```
+
+Export to geojson  
+```shell
+# convert srid from 3857 to 4326, convert other_tags from hstore to jsonb
+psql -d osm -t -A -c "COPY (SELECT json_build_object('type', 'FeatureCollection', 'features', json_agg(json_build_object('type', 'Feature', 'geometry', ST_AsGeoJSON(geom)::json, 'properties', json_build_object('name', name, 'other_tags', other_tags)))) FROM (WITH extent AS (SELECT ST_Transform(ST_SetSRID(ST_Envelope('LINESTRING(-79.40926551818849 43.660405303140934, -79.38926696777345 43.65087315871548)'::geometry),4326),3857) geom) SELECT name, hstore_to_jsonb(hstore(other_tags)) other_tags, ST_Transform(wkb_geometry,4326) geom FROM toronto_polygons, extent WHERE other_tags IS NOT NULL AND name IS NOT NULL AND ST_Intersects(wkb_geometry,extent.geom)) tags) TO STDOUT;"
 ```
 
 ### SRTM
