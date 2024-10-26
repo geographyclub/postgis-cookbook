@@ -1328,11 +1328,15 @@ CREATE TABLE bangkok_points_subway AS SELECT * FROM bangkok_points WHERE other_t
 # dissolve highways by name
 CREATE TABLE bangkok_highway_dissolve AS SELECT name, highway, ST_Union(wkb_geometry) wkb_geometry FROM bangkok_lines GROUP BY name, highway; 
 
-# dissolve highways by neighborhood
-SELECT ST_Union(ST_Intersection(a.wkb_geometry,b.wkb_geometry)) wkb_geometry FROM bangkok_lines a, bangkok_polygons b WHERE b.admin_level IN ('8') GROUP BY b.wkb_geometry;
-
 # buffer highways by type
 CREATE TABLE bangkok_highway_buffer5 AS SELECT highway, (ST_Dump(ST_Union(ST_Buffer(wkb_geometry,5)))).geom::GEOMETRY(POLYGON,3857) wkb_geometry FROM bangkok_lines GROUP BY highway;
+
+# dissolve highways by neighborhood
+# admin_level IN ('8') for bangkok
+# admin_level IN ('9') for toronto
+
+DROP TABLE IF EXISTS toronto_lines_neighborhoods; CREATE TABLE toronto_lines_neighborhoods AS WITH roads AS (SELECT ogc_fid, ST_Buffer(wkb_geometry, 20, 'endcap=flat join=bevel') wkb_geometry FROM toronto_lines) SELECT b.name, b.highway, c.name neighborhood, ST_Intersection(b.wkb_geometry, ST_Buffer(c.wkb_geometry,20)) wkb_geometry FROM roads a, toronto_lines b, toronto_polygons c WHERE a.ogc_fid = b.ogc_fid AND ST_Intersects(a.wkb_geometry, c.wkb_geometry) AND c.admin_level IN ('9');
+
 ```
 
 Make line from start to end of yonge  
@@ -1436,6 +1440,15 @@ gdalwarp -s_srs 'EPSG:4326' -t_srs 'EPSG:4326' -crop_to_cutline -cutline 'PG:dbn
 
 ### StatsCan
 
+Download files  
+```
+# boundary files
+https://www12.statcan.gc.ca/census-recensement/2021/geo/sip-pis/boundary-limites/index2021-eng.cfm?year=21
+
+# geographic attribute file
+https://www12.statcan.gc.ca/census-recensement/2021/geo/aip-pia/attribute-attribs/index-eng.cfm
+```
+
 Import boundary files  
 ```shell
 # dissemination block
@@ -1447,7 +1460,7 @@ ogr2ogr -overwrite -f PostgreSQL -s_srs "EPSG:3347" -t_srs "EPSG:3857" -nlt prom
 
 Import geographic attribute file  
 ```shell
-# prepare
+# convert character set
 iconv -f ISO-8859-1 -t UTF-8 2021_92-151_X.csv > 2021_92-151_X_iconv.csv
 
 # import
@@ -1456,8 +1469,19 @@ psql -d osm -c "\COPY attributes_2021 FROM '2021_92-151_X_iconv.csv' WITH (FORMA
 ```
 
 Join  
-```psql
+```sql
+# dissemination block + attributes
+DROP TABLE IF EXISTS ldb_000b21a_e_2021; CREATE TABLE ldb_000b21a_e_2021 AS SELECT DISTINCT ON (a.dbuid_ididu) a.*, b.landarea, b.wkb_geometry FROM attributes_2021 a JOIN ldb_000b21a_e b ON a.dbuid_ididu = b.dbuid ORDER BY a.dbuid_ididu;
 
+# dissemination area + attributes
+DROP TABLE IF EXISTS lda_000b21a_e_2021; CREATE TABLE lda_000b21a_e_2021 AS SELECT DISTINCT ON (a.dauid_adidu) a.*, b.landarea, b.wkb_geometry FROM attributes_2021 a JOIN lda_000b21a_e b ON a.dauid_adidu = b.dauid ORDER BY a.dauid_adidu;
+```
+
+Intersect with openstreetmap  
+```sql
+# points
+DROP TABLE IF EXISTS toronto_points_ldb_000b21a_e_2021; CREATE TABLE toronto_points_ldb_000b21a_e_2021 AS SELECT a.*, b.dbuid_ididu FROM toronto_points a, ldb_000b21a_e_2021 b WHERE ST_Intersects(a.wkb_geometry, b.wkb_geometry) AND POPCTRRANAME_CTRPOPRRNOM = 'Toronto';
+DROP TABLE IF EXISTS toronto_points_lda_000b21a_e_2021; CREATE TABLE toronto_points_lda_000b21a_e_2021 AS SELECT a.*, b.dauid_adidu FROM toronto_points a, lda_000b21a_e_2021 b WHERE ST_Intersects(a.wkb_geometry, b.wkb_geometry) AND POPCTRRANAME_CTRPOPRRNOM = 'Toronto';
 ```
 
 ### Wikidata/Wikipedia
