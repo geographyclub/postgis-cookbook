@@ -532,6 +532,8 @@ Get centroid
 SELECT name, ST_Centroid(ST_Multi(ST_Union(l.way))) AS singlegeom FROM planet_osm_line AS l WHERE name IS NOT NULL AND highway IN ('primary','secondary') GROUP BY name;
 
 CREATE TABLE contour20m_points AS SELECT elev, (ST_Centroid(ST_SimplifyPreserveTopology(geom,0.1)))::geometry(POINT,4326) AS geom FROM contour20m_43200 GROUP BY elev, geom;
+
+SELECT ST_AsText(ST_Transform(ST_Centroid(ST_Union(wkb_geometry)), 4326)) AS table_centroid from toronto_polygons_grid;
 ```
 
 Get geometric median  
@@ -704,6 +706,8 @@ Make grid
 ```sql
 # ST_SquareGrid
 CREATE TABLE grid02 AS SELECT (ST_SquareGrid(0.2, ST_SetSRID(ST_Envelope('POLYGON((-180 -90, -180 90, 180 90, 180 -90, -180 -90))'::geometry), 4326))).geom::(POLYGON,4326) geom;
+
+CREATE TABLE ldb_000b21a_e_2021_grid AS SELECT (ST_SquareGrid(200, ST_SetSRID(ST_MakeEnvelope(ST_XMin(extent), ST_YMin(extent), ST_XMax(extent), ST_YMax(extent), ST_SRID(extent)), 3857))).geom::geometry(POLYGON, 3857) AS wkb_geometry FROM (SELECT ST_Extent(wkb_geometry) AS extent FROM ldb_000b21a_e_2021 WHERE POPCTRRANAME_CTRPOPRRNOM = 'Toronto') AS subquery;
 
 # ST_SquareGrid with extent from table
 SELECT (ST_SquareGrid(2000, ST_MakeEnvelope(ST_XMin(extent), ST_YMin(extent), ST_XMax(extent), ST_YMax(extent), ST_SRID(extent)))).geom AS geom FROM (SELECT ST_Extent(wkb_geometry) AS extent FROM toronto_polygons) AS subquery;
@@ -1346,7 +1350,7 @@ CREATE TABLE toronto_lines_yonge AS WITH polygon AS (SELECT ST_ConvexHull(wkb_ge
 
 Amenities  
 ```shell
-# count amenties by neighborhood
+# count amenities by neighborhood
 psql -d osm -c "ALTER TABLE ${place}_polygons ADD COLUMN amenity_count int;"
 psql -d osm -c "WITH stats AS (SELECT a.osm_id, count(b.other_tags LIKE '%amenity%') count FROM ${place}_polygons a, ${place}_points b WHERE a.admin_level IS NOT NULL AND b.other_tags LIKE '%amenity%' AND ST_Intersects(a.wkb_geometry, b.wkb_geometry) GROUP BY a.osm_id) UPDATE ${place}_polygons a SET amenity_count = stats.count FROM stats WHERE a.osm_id = stats.osm_id;"
 
