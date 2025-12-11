@@ -1266,11 +1266,11 @@ CREATE TABLE ne_10m_populated_places_circles AS SELECT name, scalerank, ST_Buffe
 Import points, lines, multilines & polygons from shell  
 ```shell
 # for hstore: -lco COLUMN_TYPES=other_tags=hstore
-osmfile=Tokyo.osm.pbf
-ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nln ${osmfile%.osm.pbf}_points PG:dbname=osm ${osmfile} points
-ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nln ${osmfile%.osm.pbf}_lines PG:dbname=osm ${osmfile} lines
-ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nlt promote_to_multi -nln ${osmfile%.osm.pbf}_multilines PG:dbname=osm ${osmfile} multilinestrings
-ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -nlt promote_to_multi -nln ${osmfile%.osm.pbf}_polygons PG:dbname=osm ${osmfile} multipolygons
+osmfile=ontario-latest.osm.pbf
+ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -lco COLUMN_TYPES="other_tags=hstore" -nln ${osmfile%.osm.pbf}_points PG:dbname=osm ${osmfile} points
+ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -lco COLUMN_TYPES="other_tags=hstore" -nln ${osmfile%.osm.pbf}_lines PG:dbname=osm ${osmfile} lines
+ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -lco COLUMN_TYPES="other_tags=hstore" -nlt promote_to_multi -nln ${osmfile%.osm.pbf}_multilines PG:dbname=osm ${osmfile} multilinestrings
+ogr2ogr -overwrite -f PostgreSQL -t_srs "EPSG:3857" -lco COLUMN_TYPES="other_tags=hstore" -nlt promote_to_multi -nln ${osmfile%.osm.pbf}_polygons PG:dbname=osm ${osmfile} multipolygons
 ```
 
 Use ST_IsValid for broken polygons  
@@ -1442,7 +1442,7 @@ Clip dem to hydroatlas basins
 gdalwarp -s_srs 'EPSG:4326' -t_srs 'EPSG:4326' -crop_to_cutline -cutline 'PG:dbname=world' -csql "SELECT shape FROM basinatlas_v10_lev01" topo15_4320_43200.tif topo15_4320_43200_lev01.tif
 ```
 
-### StatsCan
+### StatCan
 
 Download files  
 ```
